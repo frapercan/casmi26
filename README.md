@@ -50,6 +50,9 @@ final rank = fuse(model scores, L, popularity)   [weights tuned on class-1 + cla
 | v1 model (30 ep, no JEPA/SAE), nce head | class 2 (1,500) | 0.327 |
 | v1 model, jepa (PLM-latent prediction) head | class 2 (1,500) | 0.418 |
 | v1 model, fingerprint head | class 2 (1,500) | 0.440 |
-| v1 model, ensemble (nce+jepa+0.5·fp) | class 2 (1,500) | **0.462** |
+| v1 model, ensemble (nce+jepa+0.5·fp) | class 2 (1,500) | 0.462 |
+| v2 (centred PLM + JEPA pretrain + SAE head), jepa head | class 2 (1,500) | 0.456 |
+| v2, SAE sparse-code head | class 2 (1,500) | 0.458 |
+| v2, ensemble (nce+jepa+0.5·fp+sae) | class 2 (1,500) | **0.500** |
 
 Competition data is CC BY-NC 4.0 and must not be committed.
