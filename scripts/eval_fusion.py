@@ -26,15 +26,34 @@ from casmi.search import Library  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
 
 
+class Fast:
+    """All candidate tables stacked into numpy arrays for fast weight search."""
+
+    def __init__(self, tables):
+        tables = [t for t in tables if len(t)]
+        self.n = len(tables)
+        self.g = np.concatenate([np.full(len(t), i) for i, t in enumerate(tables)])
+        cat = pd.concat(tables, ignore_index=True)
+        self.cols = {k: cat[k].to_numpy(np.float64) for k in ("nce", "jepa", "fp", "sae", "L") if k in cat}
+        self.in_lib = cat.in_lib.to_numpy(np.float64)
+        self.lpop = np.log1p(cat.pcl.to_numpy(np.float64))
+        self.true = cat.is_true.to_numpy()
+        self.Lmax = np.zeros(self.n); np.maximum.at(self.Lmax, self.g, self.cols["L"])
+
+    def mrr(self, w):
+        c = self.cols
+        s = sum(w.get(k, 0) * c[k] for k in ("nce", "jepa", "fp", "sae") if k in c)
+        s = s + w["L"] * c["L"] + w["lib"] * self.in_lib + w["pop"] * self.lpop
+        s = s + (self.Lmax[self.g] >= w["tau"]) * w["boost"] * c["L"] * self.in_lib
+        ts = np.full(self.n, np.nan); ts[self.g[self.true]] = s[self.true]  # one true per table
+        above = np.zeros(self.n); np.add.at(above, self.g, s > ts[self.g])
+        r = above + 1
+        rr = np.where(np.isnan(ts) | (r > 25), 0.0, 1 / r)
+        return float(rr.sum() / self.n)
+
+
 def mrr_of(tables, w):
-    rr = []
-    for t in tables:
-        if not len(t) or not t.is_true.any():
-            rr.append(0.0); continue
-        s = fuse(t, w).to_numpy()
-        r = 1 + (s > s[t.is_true.to_numpy()].max()).sum()
-        rr.append(1 / r if r <= 25 else 0.0)
-    return float(np.mean(rr))
+    return Fast(tables).mrr(w)
 
 
 def main():
@@ -89,25 +108,27 @@ def main():
     allc = pd.concat(tabs, ignore_index=True)
     allc.drop(columns=["smiles"]).to_parquet(f"{a.out}/cands.parquet", index=False)
 
-    by = {c: [t for t in tabs if len(t) and t.cls.iloc[0] == c] for c in ("1", "2")}
+    by = {c: Fast([t for t in tabs if len(t) and t.cls.iloc[0] == c]) for c in ("1", "2")}
     def report(w, tag):
-        m1, m2 = mrr_of(by["1"], w), mrr_of(by["2"], w)
+        m1, m2 = by["1"].mrr(w), by["2"].mrr(w)
         print(f"{tag}: class1 {m1:.4f}  class2 {m2:.4f}  mix50/50 {(m1+m2)/2:.4f}", flush=True)
         return (m1 + m2) / 2
     report(DEFAULT_W, "default")
-    for k in ("nce", "jepa", "fp", "sae"):
+    heads = ("nce", "jepa", "fp", "sae")
+    for k in heads:
         if k in allc:
-            report({**{x: 0 for x in ("nce", "jepa", "fp", "sae")}, **{kk: v for kk, v in DEFAULT_W.items()
-                     if kk not in ("nce", "jepa", "fp", "sae")}, k: 1.0}, f"only {k}")
+            report({**DEFAULT_W, **{x: 0 for x in heads}, k: 1.0}, f"only {k}")
     best, bw = -1, None
     grid = {"nce": [0.5, 1], "jepa": [0, 0.5, 1], "fp": [0, 0.5], "sae": [0, 0.5, 1] if "sae" in allc else [0],
-            "L": [2, 4, 8], "pop": [0, 0.1, 0.3], "tau": [0.6, 0.7, 0.8]}
+            "L": [2, 4, 8], "lib": [0, -1, -2, -4, -8], "pop": [0, 0.1, 0.3], "tau": [0.6, 0.7, 0.8]}
     for vals in itertools.product(*grid.values()):
         w = {**DEFAULT_W, **dict(zip(grid, vals))}
-        m = (mrr_of(by["1"], w) + mrr_of(by["2"], w)) / 2
+        m = (by["1"].mrr(w) + by["2"].mrr(w)) / 2
         if m > best:
             best, bw = m, w
     report(bw, "tuned")
+    print("weights", json.dumps(bw), flush=True)
+    report({**bw, "lib": 0}, "tuned w/o lib penalty")
     json.dump(bw, open(f"{a.out}/weights.json", "w"), indent=1)
 
 
