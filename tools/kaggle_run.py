@@ -66,6 +66,8 @@ if "prep" in STAGES:
     run(f"{{py}}/build_candidates.py --coconut {{coco}} --pubchem '{{pub}}' --pcl {{pcl}} --out {{W}}/candidates.parquet")
     shutil.copy(f"{{code}}/splits/holdout.parquet", f"{{W}}/holdout.parquet")
     run(f"{{py}}/embed_molecules.py --work {{W}} --out {{W}}/emb")
+if "center" in STAGES:  # anisotropy fix: centre + renormalise PLM embeddings
+    run(f"{{py}}/center_plm.py --emb {{W}}/emb")
 if "sae" in STAGES:
     run(f"{{py}}/train_sae.py --work {{W}} --out {{W}}/runs/sae.pt")
 if "jepa" in STAGES:

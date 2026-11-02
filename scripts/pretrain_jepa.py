@@ -41,15 +41,19 @@ m = JEPA(d=a.d, layers=a.layers).to(dev)
 opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.04)
 sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=max(0.05, 3 / a.steps))
 rng = np.random.default_rng(0)
+amp = dev == "cuda"
+amp_dt = torch.bfloat16 if amp and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+scaler = torch.amp.GradScaler(enabled=amp and amp_dt == torch.float16)
 t0 = time.time()
 for step in range(1, a.steps + 1):
     b = st.collate(rng.choice(pool, a.batch, replace=False), device=dev)
-    with torch.autocast(dev, dtype=torch.bfloat16, enabled=dev == "cuda"):
+    with torch.autocast(dev, dtype=amp_dt, enabled=amp):
         loss, info = m.loss(b)
     opt.zero_grad(set_to_none=True)
-    loss.backward()
+    scaler.scale(loss).backward()
+    scaler.unscale_(opt)
     torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0)
-    opt.step(); sched.step()
+    scaler.step(opt); scaler.update(); sched.step()
     m.update_target(0.996 + (1 - 0.996) * step / a.steps)  # EMA momentum -> 1
     if step % 200 == 0:
         print(f"step {step}/{a.steps} {time.time()-t0:.0f}s loss={loss.item():.4f} " +

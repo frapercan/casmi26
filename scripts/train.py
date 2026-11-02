@@ -105,18 +105,22 @@ def main():
     total = a.max_steps or int(a.epochs * len(sampler))
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=total, pct_start=max(0.05, 3 / total))
     use_amp = dev == "cuda"
+    # T4 has no native bf16 (emulated -> slow): use fp16 + loss scaling there
+    amp_dt = torch.bfloat16 if use_amp and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+    scaler = torch.amp.GradScaler(enabled=use_amp and amp_dt == torch.float16)
     step, t0, best, log = 0, time.time(), -1, []
     while step < total:
         for idx in sampler:
             b = st.collate(idx, device=dev)
             if sae is not None:
                 b["sae"] = sae.encode(b["plm"])
-            with torch.autocast(dev, dtype=torch.bfloat16, enabled=use_amp):
+            with torch.autocast(dev, dtype=amp_dt, enabled=use_amp):
                 loss, info = losses(model, b)
             opt.zero_grad(set_to_none=True)
-            loss.backward()
+            scaler.scale(loss).backward()
+            scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step(); sched.step(); step += 1
+            scaler.step(opt); scaler.update(); sched.step(); step += 1
             if step % 100 == 0:
                 print(f"step {step}/{total} {time.time()-t0:.0f}s " +
                       " ".join(f"{k}={v:.3f}" for k, v in info.items()), flush=True)

@@ -24,34 +24,42 @@ class SpectraStore:
         self.mz, self.it, self.off = p["mz"], p["it"], p["off"]
         self.spec = pd.read_parquet(f"{lib}/spectra.parquet")
         self.mols = pd.read_parquet(f"{emb}/mol_table.parquet")
-        self.plm = np.load(f"{emb}/plm.npy", mmap_mode="r")
-        self.fp = np.load(f"{emb}/fp.npy", mmap_mode="r")
+        self.plm = np.load(f"{emb}/plm.npy")  # in RAM: random gathers from mmap are slow
+        self.fp = np.load(f"{emb}/fp.npy")
         tr = self.mols[self.mols.source == "train"]
         self.row_of_ik = pd.Series(tr.index.values, index=tr.inchikey14)
         self.spec["mol_row"] = self.spec.inchikey14.map(self.row_of_ik).astype("Int64")
         self.spec_by_row = self.spec.groupby("mol_row").indices
+        # per-spectrum numeric arrays so collate is pure numpy gathers
+        sp = self.spec
+        self.a_prec = sp.precursor_mz.to_numpy(np.float32)
+        self.a_add = sp.adduct.map(ADDUCT_IDX).fillna(0).to_numpy(np.int64)
+        self.a_mode = (sp.ionization_mode == "positive").to_numpy(np.int64)
+        self.a_ce = sp.ce_mean.map(ce_value).to_numpy(np.float32)
+        self.a_row = sp.mol_row.fillna(-1).to_numpy(np.int64)
 
     def collate(self, spec_idx: np.ndarray, max_peaks: int = 64, device="cpu") -> dict:
-        B = len(spec_idx)
-        mz = np.zeros((B, max_peaks), np.float32)
-        it = np.zeros((B, max_peaks), np.float32)
-        pad = np.ones((B, max_peaks), bool)
-        for b, s in enumerate(spec_idx):
-            a, e = self.off[s], min(self.off[s + 1], self.off[s] + max_peaks)
-            n = e - a
-            mz[b, :n], it[b, :n], pad[b, :n] = self.mz[a:e], self.it[a:e], False
-        sp = self.spec.iloc[spec_idx]
-        rows = sp.mol_row.to_numpy(dtype=np.int64)
-        t = lambda x, dt=torch.float32: torch.as_tensor(x, dtype=dt, device=device)
+        spec_idx = np.asarray(spec_idx)
+        start = self.off[spec_idx]
+        n = np.minimum(self.off[spec_idx + 1] - start, max_peaks)
+        ar = np.arange(max_peaks)
+        valid = ar[None, :] < n[:, None]
+        gi = np.where(valid, start[:, None] + ar[None, :], 0)
+        mz = np.where(valid, self.mz[gi], 0).astype(np.float32)
+        it = np.where(valid, self.it[gi], 0).astype(np.float32)
+        rows = self.a_row[spec_idx]
+        r = np.maximum(rows, 0)
+        nb = device != "cpu"
+        t = lambda x, dt=torch.float32: torch.as_tensor(x, dtype=dt).to(device, non_blocking=nb)
         return {
-            "mz": t(mz), "it": t(it), "pad": t(pad, torch.bool),
-            "prec": t(sp.precursor_mz.to_numpy()),
-            "adduct": t(sp.adduct.map(ADDUCT_IDX).fillna(0).to_numpy(), torch.long),
-            "mode": t((sp.ionization_mode == "positive").to_numpy(), torch.long),
-            "ce": t(sp.ce_mean.map(ce_value).to_numpy()),
+            "mz": t(mz), "it": t(it), "pad": t(~valid, torch.bool),
+            "prec": t(self.a_prec[spec_idx]),
+            "adduct": t(self.a_add[spec_idx], torch.long),
+            "mode": t(self.a_mode[spec_idx], torch.long),
+            "ce": t(self.a_ce[spec_idx]),
             "mol_id": t(rows, torch.long),
-            "plm": t(self.plm[rows].astype(np.float32)),
-            "fp": t(np.unpackbits(self.fp[rows], axis=1).astype(np.float32)),
+            "plm": t(np.asarray(self.plm[r], dtype=np.float32)),
+            "fp": t(np.unpackbits(self.fp[r], axis=1).astype(np.float32)),
         }
 
 

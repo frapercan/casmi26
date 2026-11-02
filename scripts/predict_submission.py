@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from casmi.plm import PLMEmbedder  # noqa: E402
+from casmi.plm import DEFAULT_PLM, PLMEmbedder  # noqa: E402
 from casmi.predict import DEFAULT_W, CandidateDB, MolFeaturizer, candidate_table, fuse, load_model  # noqa: E402
 from casmi.search import Library, prep_query  # noqa: E402
 
@@ -32,7 +32,9 @@ w = {**DEFAULT_W, **(json.load(open(a.weights)) if a.weights else {})}
 lib = Library.load(f"{a.work}/lib"); lib.build_index()
 db = CandidateDB(f"{a.work}/candidates.parquet")
 model, sae = load_model(a.ckpt, a.sae, dev)
-feat = MolFeaturizer(PLMEmbedder(a.plm, device=dev) if a.plm else PLMEmbedder(device=dev), dev)
+mp = f"{a.work}/emb/plm_mean.npy"  # present iff the model was trained on centred embeddings
+feat = MolFeaturizer(PLMEmbedder(a.plm or DEFAULT_PLM, device=dev,
+                                 mean=np.load(mp) if os.path.exists(mp) else None), dev)
 test = pd.read_parquet(a.test)
 q = prep_query(test)
 q["ce_mean"] = test.collision_energy_ev.map(lambda v: float(np.mean(v)) if v is not None and len(v) else np.nan)

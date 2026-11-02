@@ -20,7 +20,7 @@ import pandas as pd
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from casmi.plm import PLMEmbedder  # noqa: E402
+from casmi.plm import DEFAULT_PLM, PLMEmbedder  # noqa: E402
 from casmi.predict import DEFAULT_W, CandidateDB, MolFeaturizer, candidate_table, fuse, load_model  # noqa: E402
 from casmi.search import Library  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
@@ -45,6 +45,7 @@ def main():
     ap.add_argument("--n-class2", type=int, default=400)
     ap.add_argument("--n-class1", type=int, default=0, help="limit np-examples molecules (0 = all)")
     ap.add_argument("--ppm", type=float, default=10.0)
+    ap.add_argument("--plm", default="", help="local PLM dir")
     ap.add_argument("--out", default="/home/user/work/fusion")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -59,7 +60,9 @@ def main():
     ref.build_index()
     db = CandidateDB(f"{a.work}/candidates.parquet")
     model, sae = load_model(a.ckpt, a.sae, dev)
-    feat = MolFeaturizer(PLMEmbedder(device=dev), dev)
+    mp = f"{a.work}/emb/plm_mean.npy"
+    mean = np.load(mp) if os.path.exists(mp) else None
+    feat = MolFeaturizer(PLMEmbedder(a.plm or DEFAULT_PLM, device=dev, mean=mean), dev)
 
     def queries(mask):
         q = full.spectra[mask].copy()
