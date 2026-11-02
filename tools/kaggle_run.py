@@ -31,6 +31,7 @@ KERNEL_TEMPLATE = r'''
 import base64, glob, io, os, shutil, subprocess, sys, tarfile, time
 PAYLOAD = "{payload}"
 TRAIN_ARGS = {train_args!r}
+JEPA_ARGS = {jepa_args!r}
 STAGES = {stages!r}
 code = "/kaggle/working/casmi26"
 tarfile.open(fileobj=io.BytesIO(base64.b64decode(PAYLOAD))).extractall(code)
@@ -49,6 +50,14 @@ def find(pattern):
 
 run("pip install -q rdkit duckdb 2>&1 | tail -2; nvidia-smi -L")
 py = f"{{sys.executable}} {{code}}/scripts"
+if "reuse" in STAGES:  # link lib/emb/candidates from an attached previous kernel's output
+    src = os.path.dirname(find("work/lib/peaks.npz")[0])[:-len("/lib")]
+    os.makedirs(f"{{W}}/emb", exist_ok=True)
+    os.symlink(f"{{src}}/lib", f"{{W}}/lib")
+    os.symlink(f"{{src}}/candidates.parquet", f"{{W}}/candidates.parquet")
+    for f in os.listdir(f"{{src}}/emb"):
+        os.symlink(f"{{src}}/emb/{{f}}", f"{{W}}/emb/{{f}}")
+    shutil.copy(f"{{code}}/splits/holdout.parquet", f"{{W}}/holdout.parquet")
 if "prep" in STAGES:
     run(f"{{py}}/prep_library.py --train {{find('train.parquet')[0]}} --out {{W}}/lib")
     coco = find("coconut_pure_shard_*.parquet")[0]
@@ -57,8 +66,14 @@ if "prep" in STAGES:
     run(f"{{py}}/build_candidates.py --coconut {{coco}} --pubchem '{{pub}}' --pcl {{pcl}} --out {{W}}/candidates.parquet")
     shutil.copy(f"{{code}}/splits/holdout.parquet", f"{{W}}/holdout.parquet")
     run(f"{{py}}/embed_molecules.py --work {{W}} --out {{W}}/emb")
+if "sae" in STAGES:
+    run(f"{{py}}/train_sae.py --work {{W}} --out {{W}}/runs/sae.pt")
+if "jepa" in STAGES:
+    run(f"{{py}}/pretrain_jepa.py --work {{W}} --out {{W}}/runs/jepa " + JEPA_ARGS)
 if "train" in STAGES:
-    run(f"{{py}}/train.py --work {{W}} --out {{W}}/runs/run " + TRAIN_ARGS)
+    extra = (f" --sae {{W}}/runs/sae.pt" if "sae" in STAGES else "") + \
+            (f" --init-encoder {{W}}/runs/jepa/encoder.pt" if "jepa" in STAGES else "")
+    run(f"{{py}}/train.py --work {{W}} --out {{W}}/runs/run " + TRAIN_ARGS + extra)
 if "cleanup" in STAGES:  # keep only the run outputs
     for d in ("lib", "emb", "candidates.parquet"):
         p = f"{{W}}/{{d}}"
@@ -90,18 +105,21 @@ def main():
     ap.add_argument("--stages", default="prep,train,cleanup")
     ap.add_argument("--no-gpu", action="store_true")
     ap.add_argument("--dest", default="/home/user/work/kaggle")
+    ap.add_argument("--jepa-args", default="")
+    ap.add_argument("--reuse-kernel", default="", help="owner/slug whose output has work/lib, emb")
     ap.add_argument("train_args", nargs="*")
     a = ap.parse_args()
     ref = f"{USER}/{a.slug}"
 
     if a.cmd == "push":
         text = KERNEL_TEMPLATE.format(payload=payload(), train_args=shlex.join(a.train_args),
-                                      stages=a.stages.split(","))
+                                      stages=a.stages.split(","), jepa_args=a.jepa_args)
         r = call("SaveKernel", {
             "slug": ref, "newTitle": a.slug, "text": text, "language": "python",
             "kernelType": "script", "isPrivate": True, "enableGpu": not a.no_gpu,
             "enableInternet": True, "competitionDataSources": [COMP],
             "datasetDataSources": DATASETS,
+            "kernelDataSources": [a.reuse_kernel] if a.reuse_kernel else [],
         }).json()
         print(json.dumps({k: r.get(k) for k in ("ref", "url", "versionNumber", "error")}, indent=1))
     elif a.cmd == "status":

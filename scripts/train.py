@@ -19,18 +19,19 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import MassLocalSampler, SpectraStore  # noqa: E402
-from casmi.model import SpecMolModel, losses  # noqa: E402
+from casmi.model import SpecMolModel, losses, sae_pred  # noqa: E402
+from casmi.sae import TopKSAE  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
 
 
 @torch.no_grad()
-def evaluate(model, st: SpectraStore, hold_ik: list[str], ppm: float, device, max_mols=None):
+def evaluate(model, st: SpectraStore, hold_ik: list[str], ppm: float, device, max_mols=None, sae=None):
     model.eval()
     db = st.mols[st.mols.source == "db"]
     db_mass, db_rows = db.exact_mass.to_numpy(), db.index.to_numpy()
     o = np.argsort(db_mass)
     db_mass, db_rows = db_mass[o], db_rows[o]
-    rr = {"nce": [], "jepa": [], "fp": [], "ens": []}
+    rr = {"nce": [], "jepa": [], "fp": [], "ens": []} | ({"sae": []} if sae is not None else {})
     for ik in hold_ik[:max_mols]:
         true_row = int(st.row_of_ik[ik])
         sidx = st.spec_by_row.get(true_row)
@@ -51,6 +52,11 @@ def evaluate(model, st: SpectraStore, hold_ik: list[str], ppm: float, device, ma
         s_fp = fp @ p.log() + (1 - fp) @ (1 - p).log()
         z = lambda s: (s - s.mean()) / (s.std() + 1e-6)
         scores = {"nce": s_nce, "jepa": s_jepa, "fp": s_fp, "ens": z(s_nce) + z(s_jepa) + 0.5 * z(s_fp)}
+        if sae is not None:
+            codes = F.normalize(sae.encode(plm), dim=-1)
+            s_sae = (F.normalize(sae_pred(model, h), dim=-1) @ codes.T).mean(0)
+            scores["sae"] = s_sae
+            scores["ens"] = scores["ens"] + z(s_sae)
         for k, s in scores.items():
             rank = int((s > s[0]).sum()) + 1  # true is row 0
             rr[k].append(1 / rank if rank <= 25 else 0.0)
@@ -71,6 +77,8 @@ def main():
     ap.add_argument("--eval-mols", type=int, default=300)
     ap.add_argument("--max-steps", type=int, default=0)
     ap.add_argument("--out", default="/home/user/work/runs/v1")
+    ap.add_argument("--sae", default="", help="path to sae.pt (adds sparse-code head)")
+    ap.add_argument("--init-encoder", default="", help="JEPA-pretrained encoder.pt")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -83,16 +91,26 @@ def main():
                         if ik not in excl and r in st.spec_by_row])
     print(f"train molecules {len(tr_rows)}  holdout {len(hold)}  device {dev}", flush=True)
 
-    model = SpecMolModel(d=a.d, layers=a.layers).to(dev)
+    sae = None
+    if a.sae:
+        ck = torch.load(a.sae, map_location=dev)
+        sae = TopKSAE(ck["d_in"], ck["n_latent"], ck["k"]).to(dev).eval().requires_grad_(False)
+        sae.load_state_dict(ck["state"])
+    model = SpecMolModel(d=a.d, layers=a.layers, sae_latent=sae.enc.out_features if sae else 0).to(dev)
+    if a.init_encoder:
+        model.enc.load_state_dict(torch.load(a.init_encoder, map_location=dev))
+        print("encoder initialised from", a.init_encoder, flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
     sampler = MassLocalSampler(st, tr_rows, a.batch)
     total = a.max_steps or int(a.epochs * len(sampler))
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=total, pct_start=0.05)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=total, pct_start=max(0.05, 3 / total))
     use_amp = dev == "cuda"
     step, t0, best, log = 0, time.time(), -1, []
     while step < total:
         for idx in sampler:
             b = st.collate(idx, device=dev)
+            if sae is not None:
+                b["sae"] = sae.encode(b["plm"])
             with torch.autocast(dev, dtype=torch.bfloat16, enabled=use_amp):
                 loss, info = losses(model, b)
             opt.zero_grad(set_to_none=True)
@@ -103,7 +121,7 @@ def main():
                 print(f"step {step}/{total} {time.time()-t0:.0f}s " +
                       " ".join(f"{k}={v:.3f}" for k, v in info.items()), flush=True)
             if step % a.eval_every == 0 or step == total:
-                ev = evaluate(model, st, hold, a.ppm, dev, a.eval_mols)
+                ev = evaluate(model, st, hold, a.ppm, dev, a.eval_mols, sae)
                 print(f"EVAL step {step}: " + json.dumps(ev), flush=True)
                 log.append({"step": step, **ev})
                 if ev["ens"] > best:
@@ -111,7 +129,8 @@ def main():
                     torch.save({"model": model.state_dict(), "args": vars(a)}, f"{a.out}/best.pt")
             if step >= total:
                 break
-    ev = evaluate(model, st, hold, a.ppm, dev)
+    model.load_state_dict(torch.load(f"{a.out}/best.pt", map_location=dev)["model"])
+    ev = evaluate(model, st, hold, a.ppm, dev, sae=sae)
     print("FINAL holdout (all):", json.dumps(ev), flush=True)
     json.dump(log + [{"final": ev}], open(f"{a.out}/log.json", "w"), indent=1)
 

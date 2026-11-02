@@ -71,8 +71,10 @@ def mlp(i, h, o, drop=0.1):
 
 
 class SpecMolModel(nn.Module):
-    def __init__(self, plm_dim: int = 384, fp_bits: int = 2048, d: int = 256, emb: int = 256, **enc_kw):
+    def __init__(self, plm_dim: int = 384, fp_bits: int = 2048, d: int = 256, emb: int = 256,
+                 sae_latent: int = 0, **enc_kw):
         super().__init__()
+        self.sae_head = mlp(d, 2 * d, sae_latent) if sae_latent else None
         self.enc = SpectrumEncoder(d=d, **enc_kw)
         self.proj_s = mlp(d, 2 * d, emb)
         self.pred = mlp(d, 2 * d, plm_dim)
@@ -92,7 +94,11 @@ class SpecMolModel(nn.Module):
         return F.normalize(self.proj_m(torch.cat([plm, fp], -1)), dim=-1)
 
 
-def losses(model: SpecMolModel, batch, w_nce=1.0, w_pred=1.0, w_fp=0.5):
+def sae_pred(model: SpecMolModel, h):
+    return F.relu(model.sae_head(h))
+
+
+def losses(model: SpecMolModel, batch, w_nce=1.0, w_pred=1.0, w_fp=0.5, w_sae=1.0):
     """batch carries spectra (B) and their molecules' plm (B,P) / fp (B,F).
     Rows with the same molecule id are treated as positives of each other."""
     h = model.spec(batch)
@@ -107,6 +113,12 @@ def losses(model: SpecMolModel, batch, w_nce=1.0, w_pred=1.0, w_fp=0.5):
     pred = 1 - F.cosine_similarity(model.pred(h), batch["plm"], dim=-1).mean()
     fp = F.binary_cross_entropy_with_logits(model.fp(h), batch["fp"])
     tot = w_nce * nce + w_pred * pred + w_fp * fp
+    extra = {}
+    if model.sae_head is not None and "sae" in batch:
+        ps = sae_pred(model, h)
+        sae = 1 - F.cosine_similarity(ps, batch["sae"], dim=-1).mean()
+        tot = tot + w_sae * sae
+        extra["sae"] = sae.item()
     with torch.no_grad():
         acc = (logits.argmax(1) == torch.arange(len(zs), device=zs.device)).float().mean()
-    return tot, {"nce": nce.item(), "pred": pred.item(), "fp": fp.item(), "acc": acc.item()}
+    return tot, {"nce": nce.item(), "pred": pred.item(), "fp": fp.item(), "acc": acc.item()} | extra

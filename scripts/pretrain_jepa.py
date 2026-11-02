@@ -39,7 +39,7 @@ print(f"pretraining spectra {len(pool)}  device {dev}", flush=True)
 
 m = JEPA(d=a.d, layers=a.layers).to(dev)
 opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.04)
-sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=0.05)
+sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=max(0.05, 3 / a.steps))
 rng = np.random.default_rng(0)
 t0 = time.time()
 for step in range(1, a.steps + 1):
