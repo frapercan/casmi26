@@ -100,7 +100,8 @@ if "fusion" in STAGES:  # tune fusion weights on class-1 (np-examples) + class-2
     run(f"{{py}}/eval_fusion.py --work {{W}} --ckpt {{W}}/runs/run/best.pt --sae {{W}}/runs/sae.pt "
         f"--plm {{W}}/plm --out /kaggle/working/fusion " + TRAIN_ARGS)
 if "predict" in STAGES:
-    wts = glob.glob(f"{{W}}/fusion/weights.json") + glob.glob("/kaggle/working/fusion/weights.json")
+    wts = glob.glob(f"{{code}}/configs/weights.json") + glob.glob(f"{{W}}/fusion/weights.json") + \
+          glob.glob("/kaggle/working/fusion/weights.json")
     run(f"{{py}}/predict_submission.py --work {{W}} --ckpt {{W}}/runs/run/best.pt --sae {{W}}/runs/sae.pt "
         f"--plm {{W}}/plm --test {{find('test.parquet')[0]}} --out /kaggle/working/submission.csv"
         + (f" --weights {{wts[-1]}}" if wts else ""))
@@ -127,7 +128,7 @@ def call(method, body):
 def payload() -> str:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for sub in ("src", "scripts", "splits"):
+        for sub in ("src", "scripts", "splits", "configs"):
             tar.add(os.path.join(ROOT, sub), arcname=sub,
                     filter=lambda t: None if "__pycache__" in t.name else t)
     return base64.b64encode(buf.getvalue()).decode()
@@ -142,12 +143,19 @@ def main():
     ap.add_argument("--offline", action="store_true", help="no internet (submission notebooks)")
     ap.add_argument("--dest", default="/home/user/work/kaggle")
     ap.add_argument("--jepa-args", default="")
+    ap.add_argument("--weights", default="", help="fusion weights json shipped as configs/weights.json")
     ap.add_argument("--reuse-kernel", default="", help="comma-separated owner/slug list; outputs merged in order (assemble stage)")
     ap.add_argument("train_args", nargs="*")
     a = ap.parse_args()
     ref = f"{USER}/{a.slug}"
 
     if a.cmd == "push":
+        cw = os.path.join(ROOT, "configs", "weights.json")
+        if os.path.exists(cw):
+            os.remove(cw)
+        if a.weights:
+            import shutil
+            shutil.copy(a.weights, cw)
         text = KERNEL_TEMPLATE.format(payload=payload(), train_args=shlex.join(a.train_args),
                                       stages=a.stages.split(","), jepa_args=a.jepa_args,
                                       reuse=[r.split("/")[-1] for r in a.reuse_kernel.split(",") if r])
@@ -155,7 +163,7 @@ def main():
             "slug": ref, "newTitle": a.slug, "text": text, "language": "python",
             "kernelType": "script", "isPrivate": True, "enableGpu": not a.no_gpu,
             "enableInternet": not a.offline, "competitionDataSources": [COMP],
-            "datasetDataSources": DATASETS,
+            "datasetDataSources": [] if a.offline else DATASETS,  # submissions need versioned sources
             "kernelDataSources": [r for r in a.reuse_kernel.split(",") if r],
         }).json()
         print(json.dumps({k: r.get(k) for k in ("ref", "url", "versionNumber", "error")}, indent=1))

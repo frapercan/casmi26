@@ -5,3 +5,4 @@ work/
 *.parquet
 *.npz
 *.csv
+configs/weights.json
