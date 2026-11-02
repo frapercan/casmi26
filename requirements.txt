@@ -1,0 +1,6 @@
+numpy
+pandas
+pyarrow
+scipy
+numba
+rdkit==2026.3.3
