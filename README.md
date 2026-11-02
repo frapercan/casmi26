@@ -47,5 +47,9 @@ final rank = fuse(model scores, L, popularity)   [weights tuned on class-1 + cla
 | Library search (10 ppm, cosine tol 0.01) | class 1 | 0.924 |
 | Random | class 2 | 0.023 |
 | PubChemLite popularity prior | class 2 | 0.037 |
+| v1 model (30 ep, no JEPA/SAE), nce head | class 2 (1,500) | 0.327 |
+| v1 model, jepa (PLM-latent prediction) head | class 2 (1,500) | 0.418 |
+| v1 model, fingerprint head | class 2 (1,500) | 0.440 |
+| v1 model, ensemble (nce+jepa+0.5·fp) | class 2 (1,500) | **0.462** |
 
 Competition data is CC BY-NC 4.0 and must not be committed.
