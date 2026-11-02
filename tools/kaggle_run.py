@@ -36,7 +36,7 @@ STAGES = {stages!r}
 code = "/kaggle/working/casmi26"
 tarfile.open(fileobj=io.BytesIO(base64.b64decode(PAYLOAD))).extractall(code)
 W = "/kaggle/working/work"
-os.makedirs(W, exist_ok=True)
+os.makedirs(f"{{W}}/runs", exist_ok=True)
 
 def run(cmd):
     print(">>>", cmd, flush=True); t = time.time()
