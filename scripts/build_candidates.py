@@ -33,12 +33,12 @@ COPY (
        best AS (
          SELECT inchikey14, arg_min(smiles, pri) AS smiles, arg_min(exact_mass, pri) AS exact_mass
          FROM allm GROUP BY inchikey14)
-  SELECT b.*,
+  SELECT b.inchikey14, b.smiles, b.exact_mass,
          b.inchikey14 IN (SELECT inchikey14 FROM coco) AS in_coconut,
          p.n_entries IS NOT NULL AS in_pcl,
          coalesce(p.n_entries, 0) AS pcl_entries
-  FROM best b LEFT JOIN pcl p USING (inchikey14)
-  ORDER BY exact_mass
+  FROM best b LEFT JOIN pcl p ON p.inchikey14 = b.inchikey14
+  ORDER BY b.exact_mass
 ) TO '{a.out}' (FORMAT parquet, ROW_GROUP_SIZE 500000)
 """)
 print(con.execute(f"""SELECT count(*), sum(in_coconut::int), sum(in_pcl::int)
