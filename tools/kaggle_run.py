@@ -33,6 +33,7 @@ PAYLOAD = "{payload}"
 TRAIN_ARGS = {train_args!r}
 JEPA_ARGS = {jepa_args!r}
 STAGES = {stages!r}
+REUSE = {reuse!r}
 code = "/kaggle/working/casmi26"
 tarfile.open(fileobj=io.BytesIO(base64.b64decode(PAYLOAD))).extractall(code)
 W = "/kaggle/working/work"
@@ -48,7 +49,26 @@ def find(pattern):
     assert hits, pattern
     return hits
 
-run("pip install -q rdkit duckdb 2>&1 | tail -2; nvidia-smi -L")
+def link_tree(src, dst):  # symlink every file of src into dst (later calls override)
+    for root, _, files in os.walk(src):
+        d = os.path.join(dst, os.path.relpath(root, src))
+        os.makedirs(d, exist_ok=True)
+        for f in files:
+            t = os.path.join(d, f)
+            if os.path.lexists(t):
+                os.remove(t)
+            os.symlink(os.path.join(root, f), t)
+
+if "assemble" in STAGES:  # merge attached kernels' work/ dirs, in REUSE order (last wins)
+    for slug in REUSE:
+        hits = [h for h in glob.glob("/kaggle/input/**/work/", recursive=True) if "/" + slug + "/" in h]
+        assert hits, slug
+        print("assemble", slug, "<-", hits[0], flush=True)
+        link_tree(hits[0], W)
+if "offline" in STAGES:
+    run(f"pip install -q --no-index --find-links {{W}}/wheels rdkit 2>&1 | tail -2; nvidia-smi -L || true")
+else:
+    run("pip install -q rdkit duckdb 2>&1 | tail -2; nvidia-smi -L")
 py = f"{{sys.executable}} {{code}}/scripts"
 if "reuse" in STAGES:  # link lib/emb/candidates from an attached previous kernel's output
     src = os.path.dirname(find("work/lib/peaks.npz")[0])[:-len("/lib")]
@@ -76,6 +96,14 @@ if "train" in STAGES:
     extra = (f" --sae {{W}}/runs/sae.pt" if "sae" in STAGES else "") + \
             (f" --init-encoder {{W}}/runs/jepa/encoder.pt" if "jepa" in STAGES else "")
     run(f"{{py}}/train.py --work {{W}} --out {{W}}/runs/run " + TRAIN_ARGS + extra)
+if "fusion" in STAGES:  # tune fusion weights on class-1 (np-examples) + class-2 (holdout)
+    run(f"{{py}}/eval_fusion.py --work {{W}} --ckpt {{W}}/runs/run/best.pt --sae {{W}}/runs/sae.pt "
+        f"--plm {{W}}/plm --out /kaggle/working/fusion " + TRAIN_ARGS)
+if "predict" in STAGES:
+    wts = glob.glob(f"{{W}}/fusion/weights.json") + glob.glob("/kaggle/working/fusion/weights.json")
+    run(f"{{py}}/predict_submission.py --work {{W}} --ckpt {{W}}/runs/run/best.pt --sae {{W}}/runs/sae.pt "
+        f"--plm {{W}}/plm --test {{find('test.parquet')[0]}} --out /kaggle/working/submission.csv"
+        + (f" --weights {{wts[-1]}}" if wts else ""))
 if "assets" in STAGES:  # offline assets for the no-internet submission notebook
     run(f"pip download -q rdkit duckdb -d {{W}}/wheels --only-binary=:all:")
     run(f"{{sys.executable}} -c \"from transformers import AutoModel, AutoTokenizer as T; "
@@ -111,22 +139,24 @@ def main():
     ap.add_argument("--slug", required=True)
     ap.add_argument("--stages", default="prep,train,cleanup")
     ap.add_argument("--no-gpu", action="store_true")
+    ap.add_argument("--offline", action="store_true", help="no internet (submission notebooks)")
     ap.add_argument("--dest", default="/home/user/work/kaggle")
     ap.add_argument("--jepa-args", default="")
-    ap.add_argument("--reuse-kernel", default="", help="owner/slug whose output has work/lib, emb")
+    ap.add_argument("--reuse-kernel", default="", help="comma-separated owner/slug list; outputs merged in order (assemble stage)")
     ap.add_argument("train_args", nargs="*")
     a = ap.parse_args()
     ref = f"{USER}/{a.slug}"
 
     if a.cmd == "push":
         text = KERNEL_TEMPLATE.format(payload=payload(), train_args=shlex.join(a.train_args),
-                                      stages=a.stages.split(","), jepa_args=a.jepa_args)
+                                      stages=a.stages.split(","), jepa_args=a.jepa_args,
+                                      reuse=[r.split("/")[-1] for r in a.reuse_kernel.split(",") if r])
         r = call("SaveKernel", {
             "slug": ref, "newTitle": a.slug, "text": text, "language": "python",
             "kernelType": "script", "isPrivate": True, "enableGpu": not a.no_gpu,
-            "enableInternet": True, "competitionDataSources": [COMP],
+            "enableInternet": not a.offline, "competitionDataSources": [COMP],
             "datasetDataSources": DATASETS,
-            "kernelDataSources": [a.reuse_kernel] if a.reuse_kernel else [],
+            "kernelDataSources": [r for r in a.reuse_kernel.split(",") if r],
         }).json()
         print(json.dumps({k: r.get(k) for k in ("ref", "url", "versionNumber", "error")}, indent=1))
     elif a.cmd == "status":
