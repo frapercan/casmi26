@@ -22,7 +22,7 @@ import tarfile
 import requests
 
 API = "https://api.kaggle.com/v1/kernels.KernelsApiService/"
-USER = os.environ.get("KAGGLE_USER", "frapercan")
+USER = os.environ.get("KAGGLE_USER", "xaxipirulazo")
 COMP = "enveda-CASMI26-molecule-id-mass-spectra"
 DATASETS = ["rishavae/casmi-2026-candidate-database", "xjoannax88/casmi-pubchemlite-candidates"]
 ROOT = os.path.join(os.path.dirname(__file__), "..")
