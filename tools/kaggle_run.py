@@ -74,6 +74,11 @@ if "train" in STAGES:
     extra = (f" --sae {{W}}/runs/sae.pt" if "sae" in STAGES else "") + \
             (f" --init-encoder {{W}}/runs/jepa/encoder.pt" if "jepa" in STAGES else "")
     run(f"{{py}}/train.py --work {{W}} --out {{W}}/runs/run " + TRAIN_ARGS + extra)
+if "assets" in STAGES:  # offline assets for the no-internet submission notebook
+    run(f"pip download -q rdkit duckdb -d {{W}}/wheels --only-binary=:all:")
+    run(f"{{sys.executable}} -c \"from transformers import AutoModel, AutoTokenizer as T; "
+        f"n='DeepChem/ChemBERTa-77M-MTR'; T.from_pretrained(n).save_pretrained('{{W}}/plm'); "
+        f"AutoModel.from_pretrained(n).save_pretrained('{{W}}/plm')\"")
 if "cleanup" in STAGES:  # keep only the run outputs
     for d in ("lib", "emb", "candidates.parquet"):
         p = f"{{W}}/{{d}}"
