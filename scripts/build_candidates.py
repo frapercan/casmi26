@@ -12,7 +12,9 @@ import argparse
 import duckdb
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--src", default="/home/user/data/cands")
+ap.add_argument("--coconut", default="/home/user/data/cands/coconut.parquet")
+ap.add_argument("--pubchem", default="/home/user/data/cands/pubchem/*.parquet")
+ap.add_argument("--pcl", default="/home/user/data/cands/pcl.parquet")
 ap.add_argument("--out", default="/home/user/work/candidates.parquet")
 a = ap.parse_args()
 
@@ -20,10 +22,10 @@ con = duckdb.connect()
 con.execute("SET memory_limit='8GB'; SET threads=4;")
 con.execute(f"""
 COPY (
-  WITH coco AS (SELECT inchikey14, smiles, exact_mass FROM '{a.src}/coconut.parquet'),
-       pc   AS (SELECT inchikey14, smiles, exact_mass FROM '{a.src}/pubchem/*.parquet'),
+  WITH coco AS (SELECT inchikey14, smiles, exact_mass FROM '{a.coconut}'),
+       pc   AS (SELECT inchikey14, smiles, exact_mass FROM '{a.pubchem}'),
        pcl  AS (SELECT key AS inchikey14, smiles, exact_mass, n_entries
-                FROM '{a.src}/pcl.parquet' WHERE charge = 0),
+                FROM '{a.pcl}' WHERE charge = 0),
        allm AS (
          SELECT inchikey14, smiles, exact_mass, 0 AS pri FROM coco
          UNION ALL SELECT inchikey14, smiles, exact_mass, 1 FROM pcl
