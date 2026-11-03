@@ -51,9 +51,10 @@ try:
     _W = _ck[0][:-len("/runs/run/best.pt")]
     _plm = [os.path.dirname(p) for p in sorted(glob.glob("/kaggle/input/**/work/plm/config.json", recursive=True))]
     _mean = [p for p in [f"{_W}/emb/plm_mean.npy"] + sorted(glob.glob("/kaggle/input/**/work/emb/plm_mean.npy", recursive=True)) if os.path.exists(p)]
-    print("OURS ckpt", _W, "| plm", _plm[0], "| mean", _mean[0], flush=True)
+    _saes = [p for p in [f"{_W}/runs/sae.pt"] + sorted(glob.glob("/kaggle/input/**/work/runs/sae.pt", recursive=True)) if os.path.exists(p)]
+    print("OURS ckpt", _W, "| sae", _saes[:1], "| plm", _plm[0], "| mean", _mean[0], flush=True)
     _dev = "cuda" if torch.cuda.is_available() else "cpu"
-    _model, _sae = load_model(f"{_W}/runs/run/best.pt", f"{_W}/runs/sae.pt" if os.path.exists(f"{_W}/runs/sae.pt") else "", _dev)
+    _model, _sae = load_model(f"{_W}/runs/run/best.pt", _saes[0], _dev)
     _feat = MolFeaturizer(PLMEmbedder(_plm[0], device=_dev, mean=np.load(_mean[0])), _dev)
     _test = pd.read_parquet("/kaggle/working/valcomp/test.parquet")
     _q = prep_query(_test)
