@@ -1,8 +1,12 @@
 """Run the casmi26 training stack on Modal (persistent volume, CPU prep, GPU sweeps).
 
 One-time:
-  pip install modal && modal setup
-  modal secret create kaggle KAGGLE_USERNAME=<user> KAGGLE_KEY=<key>   # from kaggle.json
+  pip install modal && modal setup        (or MODAL_TOKEN_ID / MODAL_TOKEN_SECRET in the environment)
+  Data: either upload what is already built locally (no Kaggle credentials needed on Modal)
+    modal volume put casmi26-data <local data dir> data      (train.parquet, sample_submission.csv)
+    modal volume put casmi26-data <local work dir>/<x> work/<x>   for lib, candidates.parquet, holdout.parquet, val
+  or let `prepare` download it: create a Modal secret "kaggle" (KAGGLE_USERNAME/KAGGLE_KEY) and set
+  CASMI_KAGGLE_SECRET=1 when running.
 
 Then (each step is idempotent; outputs live in the "casmi26-data" volume):
   modal run modal_app.py::prepare            # CPU: download, library, candidates, validation set (~1-2 h)
@@ -15,6 +19,7 @@ Then (each step is idempotent; outputs live in the "casmi26-data" volume):
 Cost control: prepare runs on CPU only; features on an L4; sweeps on the GPU set below.
 Every function has a timeout, so a forgotten run cannot drain the credits.
 """
+import os
 import subprocess
 
 import modal
@@ -30,7 +35,7 @@ image = (
                  "duckdb", "transformers", "kaggle", "requests")
     .add_local_dir(".", "/root/casmi26", ignore=["data", "work", ".git", "**/__pycache__", "*.parquet", "*.npy", "*.pt"])
 )
-kaggle = modal.Secret.from_name("kaggle")
+kaggle = [modal.Secret.from_name("kaggle")] if os.environ.get("CASMI_KAGGLE_SECRET") else []
 R, W = "/root/casmi26", "/data/work"
 
 
@@ -39,7 +44,7 @@ def sh(cmd: str):
     subprocess.run(cmd, shell=True, check=True, cwd=R)
 
 
-@app.function(image=image, volumes={"/data": vol}, secrets=[kaggle], cpu=8, memory=49152, timeout=4 * 3600)
+@app.function(image=image, volumes={"/data": vol}, secrets=kaggle, cpu=8, memory=49152, timeout=4 * 3600)
 def prepare():
     try:
         sh("bash scripts/setup_b200.sh /data prep")
