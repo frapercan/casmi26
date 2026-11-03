@@ -31,8 +31,10 @@ def fnum(x, d=np.nan):
 
 out, smi_cache = [], {}
 pf = pq.ParquetFile(RAW)
-for g in range(pf.num_row_groups):
-    b = pf.read_row_group(g).to_pandas()
+COLS = ["inchikey", "adduct", "mzs", "intensities", "smiles", "collision_energies", "formula", "ionmode",
+        "pepmass", "precursor_ppm"]
+for g, b in enumerate(pf.iter_batches(batch_size=20000, columns=COLS)):
+    b = b.to_pandas()
     b["ik14"] = b.inchikey.str[:14]
     b = b[~b.ik14.isin(known) & b.adduct.isin(amap)]
     for r in b.itertuples():
@@ -57,7 +59,7 @@ for g in range(pf.num_row_groups):
                         num_peaks=len(mz), base_peak_intensity=float(it.max()),
                         collision_energy_ev=ces, collision_energy_orig=str(r.collision_energies),
                         collision_energy_orig_units="eV"))
-    print(f"row group {g + 1}/{pf.num_row_groups}: kept {len(out)} spectra  [{time.time() - t0:.0f}s]", flush=True)
+    if g % 10 == 0: print(f"batch {g}: kept {len(out)} spectra  [{time.time() - t0:.0f}s]", flush=True)
 X = pd.DataFrame(out)
 tbl = pa.Table.from_pandas(X, preserve_index=False)
 tbl = pa.Table.from_arrays([tbl[c].cast(schema.field(c).type) for c in schema.names], schema=schema)
