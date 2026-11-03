@@ -17,6 +17,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import SpectraStore  # noqa: E402
 from casmi.gpustore import GPUStore  # noqa: E402
+from casmi.valset import excluded_spectra, load_exclude  # noqa: E402
 from casmi.jepa import JEPA  # noqa: E402
 
 ap = argparse.ArgumentParser()
@@ -29,12 +30,16 @@ ap.add_argument("--layers", type=int, default=4)
 ap.add_argument("--out", default="/home/user/work/runs/jepa")
 ap.add_argument("--no-gpu-data", action="store_true", help="collate on CPU instead of GPUStore")
 ap.add_argument("--compile", action="store_true")
+ap.add_argument("--val", default="", help="validation dir from make_valset.py (its spectra are hidden)")
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 torch.manual_seed(0)
 
-st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb")
+spec_cols = pd.read_parquet(f"{a.work}/lib/spectra.parquet", columns=["ingest_lib", "inchikey14"])
+val_ex = excluded_spectra(spec_cols, load_exclude(a.val))
+print(f"validation set {a.val or '-'}: {val_ex.sum()} spectra hidden from training", flush=True)
+st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb", exclude=val_ex)
 hold = set(pd.read_parquet(f"{a.work}/holdout.parquet").inchikey14)
 hold |= set(st.spec.loc[st.spec.ingest_lib == "enveda-np-examples", "inchikey14"])
 pool = np.flatnonzero(~st.spec.inchikey14.isin(hold).to_numpy() & st.spec.mol_row.notna().to_numpy())

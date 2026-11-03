@@ -17,16 +17,20 @@ MAX_K = 25
 
 @lru_cache(maxsize=500_000)
 def ik14(smiles: str) -> str | None:
-    """InChIKey14 after RDKit tautomer canonicalisation; None if unparsable."""
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
+    """InChIKey14 exactly as the official scorer (casmi-mean-reciprocal-rank v13):
+    stereo removed *before* tautomer canonicalisation (a stereocentre can pin a double
+    bond and change the canonical tautomer); None if unparsable or on RDKit errors."""
+    if not isinstance(smiles, str):
         return None
     try:
-        mol = _TAUT.Canonicalize(mol)
-    except Exception:
-        pass
-    key = Chem.MolToInchiKey(mol)
-    return key.split("-")[0] if key else None
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        Chem.RemoveStereochemistry(mol)
+        key = Chem.MolToInchiKey(_TAUT.Canonicalize(mol))
+        return key[:14] if key else None
+    except (ValueError, RuntimeError, TypeError):
+        return None
 
 
 def reciprocal_rank(pred_smiles: list[str], true_ik14: str, k: int = MAX_K) -> float:

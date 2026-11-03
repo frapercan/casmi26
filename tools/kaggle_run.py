@@ -86,16 +86,27 @@ if "prep" in STAGES:
     run(f"{{py}}/build_candidates.py --coconut {{coco}} --pubchem '{{pub}}' --pcl {{pcl}} --out {{W}}/candidates.parquet")
     shutil.copy(f"{{code}}/splits/holdout.parquet", f"{{W}}/holdout.parquet")
     run(f"{{py}}/embed_molecules.py --work {{W}} --out {{W}}/emb")
+VAL = f" --val {{W}}/val" if "valset" in STAGES else ""
+if "valset" in STAGES:  # hidden-test-like validation (enveda-180 timsTOF queries); hidden from training
+    run(f"{{py}}/make_valset.py --train {{find('train.parquet')[0]}} --work {{W}} --out {{W}}/val")
 if "center" in STAGES:  # anisotropy fix: centre + renormalise PLM embeddings
     run(f"{{py}}/center_plm.py --emb {{W}}/emb")
 if "sae" in STAGES:
     run(f"{{py}}/train_sae.py --work {{W}} --out {{W}}/runs/sae.pt")
 if "jepa" in STAGES:
-    run(f"{{py}}/pretrain_jepa.py --work {{W}} --out {{W}}/runs/jepa " + JEPA_ARGS)
+    shutil.rmtree(f"{{W}}/runs/jepa", ignore_errors=True)  # may hold links into a read-only input
+    run(f"{{py}}/pretrain_jepa.py --work {{W}} --out {{W}}/runs/jepa " + JEPA_ARGS + VAL)
 if "train" in STAGES:
-    extra = (f" --sae {{W}}/runs/sae.pt" if "sae" in STAGES else "") + \
+    shutil.rmtree(f"{{W}}/runs/run", ignore_errors=True)
+    extra = (f" --sae {{W}}/runs/sae.pt" if os.path.exists(f"{{W}}/runs/sae.pt") else "") + \
             (f" --init-encoder {{W}}/runs/jepa/encoder.pt" if "jepa" in STAGES else "")
-    run(f"{{py}}/train.py --work {{W}} --out {{W}}/runs/run " + TRAIN_ARGS + extra)
+    run(f"{{py}}/train.py --work {{W}} --out {{W}}/runs/run " + TRAIN_ARGS + extra + VAL)
+if "evalval" in STAGES:  # score fusion configs on the validation set, calibrate to public LB anchors
+    cf = f"{{code}}/configs"
+    run(f"{{py}}/eval_valset.py --work {{W}} --val {{W}}/val --ckpt {{W}}/runs/run/best.pt --sae {{W}}/runs/sae.pt "
+        f"--plm {{W}}/plm --out /kaggle/working/valeval "
+        f"--config fused={{cf}}/weights_v2.json --config lib={{cf}}/weights_libonly.json "
+        f"--config model={{cf}}/weights_modelonly.json --lb fused=0.179 --lb lib=0.152 --lb model=0.122")
 if "fusion" in STAGES:  # tune fusion weights on class-1 (np-examples) + class-2 (holdout)
     run(f"{{py}}/eval_fusion.py --work {{W}} --ckpt {{W}}/runs/run/best.pt --sae {{W}}/runs/sae.pt "
         f"--plm {{W}}/plm --out /kaggle/working/fusion " + TRAIN_ARGS)

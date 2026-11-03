@@ -126,6 +126,8 @@ def candidate_table(q, lib: Library, db: CandidateDB, feat: MolFeaturizer, model
         t = t[~t.ik.isin(exclude_ik)].reset_index(drop=True)
     if len(t) == 0:
         return t
+    if model is None:  # library / popularity only (no GPU needed)
+        return t
     plm, fp = feat(t.ik.tolist(), t.smiles.tolist())
     for k, v in model_scores(model, sae, query_batch(q, device), plm, fp).items():
         t[k] = v

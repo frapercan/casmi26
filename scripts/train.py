@@ -20,6 +20,7 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import MassLocalSampler, SpectraStore  # noqa: E402
 from casmi.gpustore import GPUStore  # noqa: E402
+from casmi.valset import excluded_spectra, load_exclude  # noqa: E402
 from casmi.model import SpecMolModel, losses, sae_pred  # noqa: E402
 from casmi.sae import TopKSAE  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
@@ -93,6 +94,7 @@ def main():
     ap.add_argument("--drop", type=float, default=0.1)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--log-every", type=int, default=100)
+    ap.add_argument("--val", default="", help="validation dir from make_valset.py (its spectra are hidden)")
     ap.add_argument("--tag", default="", help="experiment name for the results log")
     ap.add_argument("--results", default="", help="append final metrics as one JSON line here")
     a = ap.parse_args()
@@ -103,7 +105,10 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb")
+    spec_cols = pd.read_parquet(f"{a.work}/lib/spectra.parquet", columns=["ingest_lib", "inchikey14"])
+    val_ex = excluded_spectra(spec_cols, load_exclude(a.val))
+    print(f"validation set {a.val or '-'}: {val_ex.sum()} spectra hidden from training", flush=True)
+    st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb", exclude=val_ex)
     hold = pd.read_parquet(f"{a.work}/holdout.parquet").inchikey14.tolist()
     excl = set(hold) | set(st.spec.loc[st.spec.ingest_lib == "enveda-np-examples", "inchikey14"])
     tr_rows = np.array([r for r, ik in zip(st.row_of_ik.values, st.row_of_ik.index)
