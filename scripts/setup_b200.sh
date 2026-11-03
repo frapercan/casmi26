@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # One-shot setup of a fresh GPU box (B200/H100) for fast iteration.
-#   KAGGLE_API_TOKEN=... bash scripts/setup_b200.sh /data
+#   KAGGLE_API_TOKEN=... bash scripts/setup_b200.sh /data [all|prep|gpu]
+# prep = downloads + CPU preprocessing + validation set; gpu = embeddings, SAE, JEPA, benchmark.
 # Steps are idempotent (skipped when their output exists). ~1 h end to end, the
 # 18M-candidate filter + embeddings dominate; afterwards every experiment only
 # needs tools/sweep.py.
 set -euo pipefail
 BASE=${1:-/data}
+PHASE=${2:-all}
 D=$BASE/data; W=$BASE/work; R=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$D/cands" "$W"
 py() { python3 "$R/scripts/$1.py" "${@:2}"; }
 
+if [ "$PHASE" != gpu ]; then
 # 1. environment (PyTorch for the box's CUDA must already be installed)
 pip install -q -r "$R/requirements.txt" kaggle
 
@@ -26,13 +29,16 @@ PCL=$(find "$D/cands/pcl" -name 'pubchemlite_structures.parquet' | head -1)
 [ -f "$W/lib/peaks.npz" ]          || py prep_library --train "$D/train.parquet" --out "$W/lib"
 [ -f "$W/candidates.parquet" ]     || py build_candidates --coconut "$COCO" --pubchem "$PUB" --pcl "$PCL" --out "$W/candidates.parquet"
 [ -f "$W/holdout.parquet" ]        || py make_split --lib "$W/lib" --db "$W/candidates.parquet" --out "$W"
+[ -f "$W/val/answers.parquet" ]    || py make_valset --train "$D/train.parquet" --work "$W" --out "$W/val"
+fi
+[ "$PHASE" = prep ] && exit 0
 
 # 4. GPU features: PLM embeddings (centred), SAE, JEPA encoder
 [ -f "$W/emb/plm.npy" ]            || py embed_molecules --work "$W" --out "$W/emb"
 [ -f "$W/emb/plm_mean.npy" ]       || py center_plm --emb "$W/emb"
 [ -f "$W/runs/sae.pt" ]            || py train_sae --work "$W" --out "$W/runs/sae.pt"
-[ -f "$W/runs/jepa/encoder.pt" ]   || py pretrain_jepa --work "$W" --out "$W/runs/jepa" --steps 30000 --batch 2048 --lr 1e-3
+[ -f "$W/runs/jepa/encoder.pt" ]   || py pretrain_jepa --work "$W" --out "$W/runs/jepa" --steps 30000 --batch 2048 --lr 1e-3 --compile --val "$W/val"
 
 # 5. throughput check
-python3 "$R/tools/sweep.py" "$R/exp/b200_bench.json" --work "$W"
+python3 "$R/tools/sweep.py" "$R/exp/b200_bench.json" --work "$W" --val "$W/val"
 python3 "$R/tools/report.py" "$W/results.jsonl" --filter bench/

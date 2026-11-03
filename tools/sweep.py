@@ -34,6 +34,7 @@ def main():
     ap.add_argument("--runs", default="", help="output dir for checkpoints (default <work>/runs/sweeps)")
     ap.add_argument("--results", default="", help="default <work>/results.jsonl")
     ap.add_argument("--parallel", type=int, default=1)
+    ap.add_argument("--val", default="", help="validation dir (make_valset.py): its molecules are hidden from training")
     ap.add_argument("--dry", action="store_true")
     a = ap.parse_args()
     e = json.load(open(a.exp))
@@ -50,7 +51,7 @@ def main():
         tag = e["name"] + ("/" + ",".join(f"{k}={v}" for k, v in pt.items()) if pt else "")
         if tag in done:
             print("skip (done)", tag); continue
-        args = {**e.get("base", {}), **pt, "work": a.work, "tag": tag, "results": res,
+        args = {**e.get("base", {}), **pt, "work": a.work, "tag": tag, "results": res, "val": a.val or None,
                 "out": f"{runs}/{tag.replace('/', '__').replace(',', '_').replace('=', '')}"}
         cmd = [sys.executable, f"{ROOT}/scripts/train.py"] + cli(args)
         jobs.append((tag, cmd, args["out"]))
