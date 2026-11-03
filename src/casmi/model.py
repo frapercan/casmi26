@@ -118,7 +118,8 @@ def losses(model: SpecMolModel, batch, w_nce=1.0, w_pred=1.0, w_fp=0.5, w_sae=1.
         ps = sae_pred(model, h)
         sae = 1 - F.cosine_similarity(ps, batch["sae"], dim=-1).mean()
         tot = tot + w_sae * sae
-        extra["sae"] = sae.item()
+        extra["sae"] = sae.detach()
     with torch.no_grad():
         acc = (logits.argmax(1) == torch.arange(len(zs), device=zs.device)).float().mean()
-    return tot, {"nce": nce.item(), "pred": pred.item(), "fp": fp.item(), "acc": acc.item()} | extra
+    # detached tensors, not floats: no host sync per step (format them only when logging)
+    return tot, {"nce": nce.detach(), "pred": pred.detach(), "fp": fp.detach(), "acc": acc} | extra

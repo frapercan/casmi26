@@ -1,0 +1,3 @@
+{"name": "reg", "base": {"gpu-data": true, "compile": true, "epochs": 30, "batch": 1024, "lr": 6e-4,
+                         "eval-every": 4000, "eval-mols": 300, "d": 256, "layers": 4},
+ "grid": {"drop": [0.1, 0.3], "wd": [0.01, 0.1], "local-frac": [0.5, 0.8]}}

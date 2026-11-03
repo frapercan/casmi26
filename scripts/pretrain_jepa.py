@@ -16,6 +16,7 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import SpectraStore  # noqa: E402
+from casmi.gpustore import GPUStore  # noqa: E402
 from casmi.jepa import JEPA  # noqa: E402
 
 ap = argparse.ArgumentParser()
@@ -26,6 +27,8 @@ ap.add_argument("--lr", type=float, default=5e-4)
 ap.add_argument("--d", type=int, default=256)
 ap.add_argument("--layers", type=int, default=4)
 ap.add_argument("--out", default="/home/user/work/runs/jepa")
+ap.add_argument("--no-gpu-data", action="store_true", help="collate on CPU instead of GPUStore")
+ap.add_argument("--compile", action="store_true")
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -41,14 +44,23 @@ m = JEPA(d=a.d, layers=a.layers).to(dev)
 opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.04)
 sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=max(0.05, 3 / a.steps))
 rng = np.random.default_rng(0)
+gpu_data = dev == "cuda" and not a.no_gpu_data
+if gpu_data:
+    gs = GPUStore(st, dev)
+    gpool = torch.as_tensor(pool, device=dev)
+    gen = torch.Generator(device=dev); gen.manual_seed(0)
+    next_batch = lambda: gs.collate(gs.sample_spectra(a.batch, gen, gpool))
+else:  # with replacement: O(batch), not a 1.9M-element permutation per step
+    next_batch = lambda: st.collate(pool[rng.integers(len(pool), size=a.batch)], device=dev)
+loss_fn = torch.compile(m.loss) if a.compile else m.loss
 amp = dev == "cuda"
 amp_dt = torch.bfloat16 if amp and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
 scaler = torch.amp.GradScaler(enabled=amp and amp_dt == torch.float16)
-t0 = time.time()
+t0 = t_log = time.time()
 for step in range(1, a.steps + 1):
-    b = st.collate(rng.choice(pool, a.batch, replace=False), device=dev)
+    b = next_batch()
     with torch.autocast(dev, dtype=amp_dt, enabled=amp):
-        loss, info = m.loss(b)
+        loss, info = loss_fn(b)
     opt.zero_grad(set_to_none=True)
     scaler.scale(loss).backward()
     scaler.unscale_(opt)
@@ -56,8 +68,9 @@ for step in range(1, a.steps + 1):
     scaler.step(opt); scaler.update(); sched.step()
     m.update_target(0.996 + (1 - 0.996) * step / a.steps)  # EMA momentum -> 1
     if step % 200 == 0:
-        print(f"step {step}/{a.steps} {time.time()-t0:.0f}s loss={loss.item():.4f} " +
-              " ".join(f"{k}={v:.3f}" for k, v in info.items()), flush=True)
+        print(f"step {step}/{a.steps} {time.time()-t0:.0f}s loss={loss.item():.4f} {200/(time.time()-t_log):.1f} it/s " +
+              " ".join(f"{k}={float(v):.3f}" for k, v in info.items()), flush=True)
+        t_log = time.time()
     if step % 5000 == 0 or step == a.steps:
         torch.save(m.tgt.state_dict(), f"{a.out}/encoder.pt")  # EMA target is the smoother encoder
 print("saved", f"{a.out}/encoder.pt")

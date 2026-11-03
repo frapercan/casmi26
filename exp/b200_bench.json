@@ -1,0 +1,3 @@
+{"name": "bench", "base": {"gpu-data": true, "compile": true, "max-steps": 3000, "eval-every": 3000,
+                           "eval-mols": 300, "d": 256, "layers": 4, "log-every": 200},
+ "grid": {"batch": [256, 1024, 4096]}}

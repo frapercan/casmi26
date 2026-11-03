@@ -74,5 +74,5 @@ class JEPA(nn.Module):
         std = cc.float().std(0)
         var_loss = F.relu(1 - std).mean()
         loss = tok_loss + cls_loss + 0.1 * var_loss
-        return loss, {"tok": tok_loss.item(), "cls": cls_loss.item(), "std": std.mean().item(),
-                      "masked": mask.float().sum().item() / (~b["pad"]).sum().item()}
+        return loss, {"tok": tok_loss.detach(), "cls": cls_loss.detach(), "std": std.mean().detach(),
+                      "masked": mask.float().sum() / (~b["pad"]).sum()}

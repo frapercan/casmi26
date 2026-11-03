@@ -19,6 +19,7 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import MassLocalSampler, SpectraStore  # noqa: E402
+from casmi.gpustore import GPUStore  # noqa: E402
 from casmi.model import SpecMolModel, losses, sae_pred  # noqa: E402
 from casmi.sae import TopKSAE  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
@@ -79,10 +80,28 @@ def main():
     ap.add_argument("--out", default="/home/user/work/runs/v1")
     ap.add_argument("--sae", default="", help="path to sae.pt (adds sparse-code head)")
     ap.add_argument("--init-encoder", default="", help="JEPA-pretrained encoder.pt")
+    # fast-iteration knobs (big GPUs)
+    ap.add_argument("--gpu-data", action="store_true", help="keep the training set on the GPU (GPUStore)")
+    ap.add_argument("--compile", action="store_true", help="torch.compile the model")
+    ap.add_argument("--amp", default="auto", choices=["auto", "bf16", "fp16", "off"])
+    ap.add_argument("--local-frac", type=float, default=0.5, help="share of each batch from one mass window")
+    ap.add_argument("--w-nce", type=float, default=1.0)
+    ap.add_argument("--w-pred", type=float, default=1.0)
+    ap.add_argument("--w-fp", type=float, default=0.5)
+    ap.add_argument("--w-sae", type=float, default=1.0)
+    ap.add_argument("--wd", type=float, default=0.01)
+    ap.add_argument("--drop", type=float, default=0.1)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--log-every", type=int, default=100)
+    ap.add_argument("--tag", default="", help="experiment name for the results log")
+    ap.add_argument("--results", default="", help="append final metrics as one JSON line here")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    torch.manual_seed(0)
+    torch.manual_seed(a.seed)
+    if dev == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb")
     hold = pd.read_parquet(f"{a.work}/holdout.parquet").inchikey14.tolist()
@@ -96,47 +115,83 @@ def main():
         ck = torch.load(a.sae, map_location=dev)
         sae = TopKSAE(ck["d_in"], ck["n_latent"], ck["k"]).to(dev).eval().requires_grad_(False)
         sae.load_state_dict(ck["state"])
-    model = SpecMolModel(d=a.d, layers=a.layers, sae_latent=sae.enc.out_features if sae else 0).to(dev)
+    model = SpecMolModel(d=a.d, layers=a.layers, drop=a.drop, sae_latent=sae.enc.out_features if sae else 0).to(dev)
     if a.init_encoder:
         model.enc.load_state_dict(torch.load(a.init_encoder, map_location=dev))
         print("encoder initialised from", a.init_encoder, flush=True)
-    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
-    sampler = MassLocalSampler(st, tr_rows, a.batch)
-    total = a.max_steps or int(a.epochs * len(sampler))
+    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.wd, fused=dev == "cuda")
+    if a.gpu_data:
+        gs = GPUStore(st, dev, mol_rows=tr_rows)
+        gen = torch.Generator(device=dev); gen.manual_seed(a.seed)
+        steps_per_epoch = gs.epoch_steps(a.batch, a.local_frac)
+
+        def batches():
+            while True:
+                yield gs.collate(gs.sample(a.batch, gen, a.local_frac))
+        print(f"GPUStore: {gs.n_spec} spectra, {gs.n_mol} train molecules on {dev}", flush=True)
+    else:
+        sampler = MassLocalSampler(st, tr_rows, a.batch, seed=a.seed)
+        steps_per_epoch = len(sampler)
+
+        def batches():
+            while True:
+                for idx in sampler:
+                    yield st.collate(idx, device=dev)
+    total = a.max_steps or int(a.epochs * steps_per_epoch)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=total, pct_start=max(0.05, 3 / total))
-    use_amp = dev == "cuda"
-    # T4 has no native bf16 (emulated -> slow): use fp16 + loss scaling there
-    amp_dt = torch.bfloat16 if use_amp and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+    use_amp = dev == "cuda" and a.amp != "off"
+    bf16_ok = dev == "cuda" and torch.cuda.get_device_capability()[0] >= 8
+    amp_dt = torch.bfloat16 if (a.amp == "bf16" or (a.amp == "auto" and bf16_ok)) else torch.float16
     scaler = torch.amp.GradScaler(enabled=use_amp and amp_dt == torch.float16)
+    lw = dict(w_nce=a.w_nce, w_pred=a.w_pred, w_fp=a.w_fp, w_sae=a.w_sae)
+    step_fn = losses
+    if a.compile:
+        step_fn = torch.compile(losses, dynamic=True)  # batch size varies (unique molecules)
+    print(f"steps {total} ({steps_per_epoch}/epoch)  amp {use_amp and amp_dt}  compile {a.compile}", flush=True)
     step, t0, best, log = 0, time.time(), -1, []
-    while step < total:
-        for idx in sampler:
-            b = st.collate(idx, device=dev)
-            if sae is not None:
+    t_log, n_log = time.time(), 0
+    for b in batches():
+        if sae is not None:
+            with torch.no_grad():
                 b["sae"] = sae.encode(b["plm"])
-            with torch.autocast(dev, dtype=amp_dt, enabled=use_amp):
-                loss, info = losses(model, b)
-            opt.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
-            scaler.unscale_(opt)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(opt); scaler.update(); sched.step(); step += 1
-            if step % 100 == 0:
-                print(f"step {step}/{total} {time.time()-t0:.0f}s " +
-                      " ".join(f"{k}={v:.3f}" for k, v in info.items()), flush=True)
-            if step % a.eval_every == 0 or step == total:
-                ev = evaluate(model, st, hold, a.ppm, dev, a.eval_mols, sae)
-                print(f"EVAL step {step}: " + json.dumps(ev), flush=True)
-                log.append({"step": step, **ev})
-                if ev["ens"] > best:
-                    best = ev["ens"]
-                    torch.save({"model": model.state_dict(), "args": vars(a)}, f"{a.out}/best.pt")
-            if step >= total:
-                break
+        with torch.autocast(dev, dtype=amp_dt, enabled=use_amp):
+            loss, info = step_fn(model, b, **lw)
+        opt.zero_grad(set_to_none=True)
+        scaler.scale(loss).backward()
+        scaler.unscale_(opt)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        scaler.step(opt); scaler.update(); sched.step(); step += 1
+        n_log += len(b["mz"])
+        if step % a.log_every == 0:
+            dt = time.time() - t_log
+            print(f"step {step}/{total} {time.time()-t0:.0f}s {a.log_every/dt:.1f} it/s {n_log/dt:.0f} spec/s " +
+                  " ".join(f"{k}={float(v):.3f}" for k, v in info.items()), flush=True)
+            t_log, n_log = time.time(), 0
+        if step % a.eval_every == 0 or step == total:
+            ev = evaluate(model, st, hold, a.ppm, dev, a.eval_mols, sae)
+            print(f"EVAL step {step}: " + json.dumps(ev), flush=True)
+            log.append({"step": step, **ev})
+            if ev["ens"] > best:
+                best = ev["ens"]
+                torch.save({"model": model.state_dict(), "args": vars(a)}, f"{a.out}/best.pt")
+        if step >= total:
+            break
     model.load_state_dict(torch.load(f"{a.out}/best.pt", map_location=dev)["model"])
     ev = evaluate(model, st, hold, a.ppm, dev, sae=sae)
     print("FINAL holdout (all):", json.dumps(ev), flush=True)
     json.dump(log + [{"final": ev}], open(f"{a.out}/log.json", "w"), indent=1)
+    if a.results:
+        import subprocess
+        try:
+            commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                                    cwd=os.path.dirname(__file__)).stdout.strip()
+        except Exception:
+            commit = ""
+        rec = {"tag": a.tag, "commit": commit, "time_s": round(time.time() - t0), "steps": total,
+               "device": torch.cuda.get_device_name() if dev == "cuda" else "cpu",
+               "args": vars(a), "final": ev, "best_partial": best}
+        with open(a.results, "a") as f:
+            f.write(json.dumps(rec) + "\n")
 
 
 if __name__ == "__main__":
