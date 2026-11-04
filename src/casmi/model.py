@@ -72,8 +72,14 @@ def mlp(i, h, o, drop=0.1):
 
 class SpecMolModel(nn.Module):
     def __init__(self, plm_dim: int = 384, fp_bits: int = 2048, d: int = 256, emb: int = 256,
-                 sae_latent: int = 0, **enc_kw):
+                 sae_latent: int = 0, fwd: bool = False, **enc_kw):
         super().__init__()
+        if fwd:  # forward "world model": molecule + measurement conditions -> spectrum latent
+            self.cond_add = nn.Embedding(len(ADDUCT_IDX) + 1, d)
+            self.cond_num = mlp(2, d, d)
+            self.fwd_m = mlp(plm_dim + fp_bits, 2 * d, emb)
+            self.film = nn.Linear(d, 2 * emb)
+        self.has_fwd = fwd
         self.sae_head = mlp(d, 2 * d, sae_latent) if sae_latent else None
         self.enc = SpectrumEncoder(d=d, **enc_kw)
         self.proj_s = mlp(d, 2 * d, emb)
@@ -94,11 +100,27 @@ class SpecMolModel(nn.Module):
         return F.normalize(self.proj_m(torch.cat([plm, fp], -1)), dim=-1)
 
 
+def cond_vec(model: SpecMolModel, batch):
+    """Measurement conditions of each spectrum (adduct, polarity, collision energy) -> (B, d)."""
+    num = torch.stack([batch["mode"].float() * 2 - 1, batch["ce"] / 100], -1)
+    return model.cond_add(batch["adduct"]) + model.cond_num(num)
+
+
+def fwd_emb(model: SpecMolModel, plm, fp, cond):
+    """Predicted spectrum latent of every molecule under every spectrum's conditions.
+    plm,fp: (M,.) or (B,M,.); cond: (B,d) -> (B,M,emb), unit norm."""
+    g = model.fwd_m(torch.cat([plm, fp], -1))
+    if g.dim() == 2:
+        g = g.unsqueeze(0)
+    gam, bet = model.film(cond).chunk(2, -1)
+    return F.normalize(g * (1 + gam.unsqueeze(1)) + bet.unsqueeze(1), dim=-1)
+
+
 def sae_pred(model: SpecMolModel, h):
     return F.relu(model.sae_head(h))
 
 
-def losses(model: SpecMolModel, batch, w_nce=1.0, w_pred=1.0, w_fp=0.5, w_sae=1.0):
+def losses(model: SpecMolModel, batch, w_nce=1.0, w_pred=1.0, w_fp=0.5, w_sae=1.0, w_hard=1.0, w_fwd=1.0):
     """batch carries spectra (B) and their molecules' plm (B,P) / fp (B,F).
     Rows with the same molecule id are treated as positives of each other."""
     h = model.spec(batch)
@@ -119,6 +141,28 @@ def losses(model: SpecMolModel, batch, w_nce=1.0, w_pred=1.0, w_fp=0.5, w_sae=1.
         sae = 1 - F.cosine_similarity(ps, batch["sae"], dim=-1).mean()
         tot = tot + w_sae * sae
         extra["sae"] = sae.detach()
+    if "neg_plm" in batch:  # explicit isomer / same-mass negatives from the structure databases
+        ok = batch["neg_ok"]
+        zn = model.mol_emb(batch["neg_plm"], batch["neg_fp"])                      # (B,K,emb)
+        s_pos = (zs * zm).sum(-1, keepdim=True)
+        s_neg = torch.einsum("be,bke->bk", zs, zn).masked_fill(~ok, -1e4)
+        hl = model.logit_scale.exp().clamp(max=100) * torch.cat([s_pos, s_neg], 1)
+        hard = -(hl[:, 0] - hl.logsumexp(1)).mean()
+        tot = tot + w_hard * hard
+        extra["hard"] = hard.detach()
+    if model.has_fwd:  # world model: imagine each candidate's spectrum under this spectrum's conditions
+        c = cond_vec(model, batch)
+        fb = fwd_emb(model, batch["plm"], batch["fp"], c)                          # (B,B,emb)
+        fl = torch.einsum("be,bme->bm", zs, fb)
+        pos = same
+        if "neg_plm" in batch:
+            fn = fwd_emb(model, batch["neg_plm"], batch["neg_fp"], c)              # (B,K,emb)
+            fl = torch.cat([fl, torch.einsum("be,bke->bk", zs, fn).masked_fill(~batch["neg_ok"], -1e4)], 1)
+            pos = torch.cat([same, torch.zeros_like(batch["neg_ok"])], 1)
+        fl = model.logit_scale.exp().clamp(max=100) * fl
+        fwd = -(fl.masked_fill(~pos, -1e4).logsumexp(1) - fl.logsumexp(1)).mean()
+        tot = tot + w_fwd * fwd
+        extra["fwd"] = fwd.detach()
     with torch.no_grad():
         acc = (logits.argmax(1) == torch.arange(len(zs), device=zs.device)).float().mean()
     # detached tensors, not floats: no host sync per step (format them only when logging)

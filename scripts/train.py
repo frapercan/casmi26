@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import MassLocalSampler, SpectraStore  # noqa: E402
 from casmi.gpustore import GPUStore  # noqa: E402
 from casmi.valset import excluded_spectra, load_exclude  # noqa: E402
-from casmi.model import SpecMolModel, losses, sae_pred  # noqa: E402
+from casmi.model import SpecMolModel, cond_vec, fwd_emb, losses, sae_pred  # noqa: E402
 from casmi.sae import TopKSAE  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
 
@@ -33,7 +33,8 @@ def evaluate(model, st: SpectraStore, hold_ik: list[str], ppm: float, device, ma
     db_mass, db_rows = db.exact_mass.to_numpy(), db.index.to_numpy()
     o = np.argsort(db_mass)
     db_mass, db_rows = db_mass[o], db_rows[o]
-    rr = {"nce": [], "jepa": [], "fp": [], "ens": []} | ({"sae": []} if sae is not None else {})
+    rr = ({"nce": [], "jepa": [], "fp": [], "ens": []} | ({"sae": []} if sae is not None else {})
+          | ({"fwd": []} if model.has_fwd else {}))
     for ik in hold_ik[:max_mols]:
         true_row = int(st.row_of_ik[ik])
         sidx = st.spec_by_row.get(true_row)
@@ -54,6 +55,10 @@ def evaluate(model, st: SpectraStore, hold_ik: list[str], ppm: float, device, ma
         s_fp = fp @ p.log() + (1 - fp) @ (1 - p).log()
         z = lambda s: (s - s.mean()) / (s.std() + 1e-6)
         scores = {"nce": s_nce, "jepa": s_jepa, "fp": s_fp, "ens": z(s_nce) + z(s_jepa) + 0.5 * z(s_fp)}
+        if model.has_fwd:
+            s_fwd = torch.einsum("se,sme->sm", model.spec_emb(h), fwd_emb(model, plm, fp, cond_vec(model, b))).mean(0)
+            scores["fwd"] = s_fwd
+            scores["ens"] = scores["ens"] + z(s_fwd)
         if sae is not None:
             codes = F.normalize(sae.encode(plm), dim=-1)
             s_sae = (F.normalize(sae_pred(model, h), dim=-1) @ codes.T).mean(0)
@@ -90,6 +95,11 @@ def main():
     ap.add_argument("--w-pred", type=float, default=1.0)
     ap.add_argument("--w-fp", type=float, default=0.5)
     ap.add_argument("--w-sae", type=float, default=1.0)
+    ap.add_argument("--fwd", action="store_true", help="forward world-model head (molecule + conditions -> spectrum latent)")
+    ap.add_argument("--hard-k", type=int, default=0, help="database same-mass negatives per spectrum (needs --gpu-data)")
+    ap.add_argument("--hard-ppm", type=float, default=10.0)
+    ap.add_argument("--w-hard", type=float, default=1.0)
+    ap.add_argument("--w-fwd", type=float, default=1.0)
     ap.add_argument("--wd", type=float, default=0.01)
     ap.add_argument("--drop", type=float, default=0.1)
     ap.add_argument("--seed", type=int, default=0)
@@ -120,7 +130,7 @@ def main():
         ck = torch.load(a.sae, map_location=dev)
         sae = TopKSAE(ck["d_in"], ck["n_latent"], ck["k"]).to(dev).eval().requires_grad_(False)
         sae.load_state_dict(ck["state"])
-    model = SpecMolModel(d=a.d, layers=a.layers, drop=a.drop, sae_latent=sae.enc.out_features if sae else 0).to(dev)
+    model = SpecMolModel(d=a.d, layers=a.layers, drop=a.drop, sae_latent=sae.enc.out_features if sae else 0, fwd=a.fwd).to(dev)
     if a.init_encoder:
         model.enc.load_state_dict(torch.load(a.init_encoder, map_location=dev))
         print("encoder initialised from", a.init_encoder, flush=True)
@@ -132,7 +142,8 @@ def main():
 
         def batches():
             while True:
-                yield gs.collate(gs.sample(a.batch, gen, a.local_frac))
+                b = gs.collate(gs.sample(a.batch, gen, a.local_frac))
+                yield gs.hard_negatives(b, a.hard_k, gen, a.hard_ppm) if a.hard_k else b
         print(f"GPUStore: {gs.n_spec} spectra, {gs.n_mol} train molecules on {dev}", flush=True)
     else:
         sampler = MassLocalSampler(st, tr_rows, a.batch, seed=a.seed)
@@ -148,7 +159,8 @@ def main():
     bf16_ok = dev == "cuda" and torch.cuda.get_device_capability()[0] >= 8
     amp_dt = torch.bfloat16 if (a.amp == "bf16" or (a.amp == "auto" and bf16_ok)) else torch.float16
     scaler = torch.amp.GradScaler(enabled=use_amp and amp_dt == torch.float16)
-    lw = dict(w_nce=a.w_nce, w_pred=a.w_pred, w_fp=a.w_fp, w_sae=a.w_sae)
+    assert not a.hard_k or a.gpu_data, "--hard-k needs --gpu-data"
+    lw = dict(w_nce=a.w_nce, w_pred=a.w_pred, w_fp=a.w_fp, w_sae=a.w_sae, w_hard=a.w_hard, w_fwd=a.w_fwd)
     step_fn = losses
     if a.compile:
         step_fn = torch.compile(losses, dynamic=True)  # batch size varies (unique molecules)

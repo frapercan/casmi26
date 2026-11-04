@@ -15,7 +15,7 @@ import torch
 import torch.nn.functional as F
 
 from .data import ce_value
-from .model import ADDUCT_IDX, SpecMolModel, sae_pred
+from .model import ADDUCT_IDX, SpecMolModel, cond_vec, fwd_emb, sae_pred
 from .sae import TopKSAE
 from .search import Library, search_molecule
 
@@ -72,7 +72,7 @@ def load_model(ckpt: str, sae_path: str = "", device="cpu"):
         sae = TopKSAE(s["d_in"], s["n_latent"], s["k"]).to(device).eval()
         sae.load_state_dict(s["state"])
     model = SpecMolModel(d=args["d"], layers=args["layers"],
-                         sae_latent=sae.enc.out_features if sae else 0).to(device).eval()
+                         sae_latent=sae.enc.out_features if sae else 0, fwd=args.get("fwd", False)).to(device).eval()
     model.load_state_dict(ck["model"])
     return model, sae
 
@@ -100,6 +100,8 @@ def model_scores(model, sae, b, plm, fp):
     p = torch.sigmoid(model.fp(h)).mean(0).clamp(1e-4, 1 - 1e-4)
     s_fp = fp @ p.log() + (1 - fp) @ (1 - p).log()
     out = {"nce": s_nce, "jepa": s_jepa, "fp": s_fp}
+    if getattr(model, "has_fwd", False):
+        out["fwd"] = torch.einsum("se,sme->sm", model.spec_emb(h), fwd_emb(model, plm, fp, cond_vec(model, b))).mean(0)
     if sae is not None:
         codes = F.normalize(sae.encode(plm), dim=-1)
         out["sae"] = (F.normalize(sae_pred(model, h), dim=-1) @ codes.T).mean(0)

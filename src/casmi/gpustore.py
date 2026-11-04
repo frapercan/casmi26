@@ -9,6 +9,7 @@ so the CPU only launches kernels and the GPU never waits on collate.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import torch
 
 from .data import SpectraStore
@@ -55,6 +56,15 @@ class GPUStore:
         self.m_cnt = t(cnt[m_order], torch.long)
         self.n_mol = len(uniq)
         self.n_spec = S
+        # structure-database molecules sorted by mass: explicit same-mass negatives
+        mols = st.mols
+        db = np.flatnonzero((mols.source == "db").to_numpy())
+        dm = mols.exact_mass.to_numpy()[db]
+        o = np.argsort(dm)
+        self.db_rows = t(db[o], torch.long)
+        self.db_mass = t(dm[o], torch.float64)
+        self.mol_mass = t(mols.exact_mass.to_numpy(), torch.float64)
+        self.ik_id = t(pd.factorize(mols.inchikey14)[0], torch.long)
 
     def unpack_fp(self, rows):
         return ((self.fp[rows].unsqueeze(-1) & self.bits) > 0).flatten(1).to(torch.float32)
@@ -65,6 +75,23 @@ class GPUStore:
                 "prec": self.prec[sidx], "adduct": self.add[sidx], "mode": self.mode[sidx],
                 "ce": self.ce[sidx], "mol_id": self.row[sidx],
                 "plm": self.plm[r].float(), "fp": self.unpack_fp(r)}
+
+    def hard_negatives(self, b: dict, k: int, gen: torch.Generator, ppm: float = 10.0) -> dict:
+        """k database molecules within ppm of each spectrum's molecule (same structure masked out)."""
+        r = b["mol_id"].clamp(min=0)
+        m = self.mol_mass[r]
+        tol = torch.clamp(m * ppm * 1e-6, min=0.003)
+        lo = torch.searchsorted(self.db_mass, m - tol)
+        hi = torch.searchsorted(self.db_mass, m + tol, right=True)
+        n = (hi - lo).clamp(min=0)
+        pick = lo.unsqueeze(1) + (torch.rand(len(r), k, device=self.dev, generator=gen) * n.unsqueeze(1)).long()
+        pick = pick.clamp(max=len(self.db_rows) - 1)
+        rows = self.db_rows[pick]                                                   # (B,k)
+        ok = (n > 0).unsqueeze(1) & (self.ik_id[rows] != self.ik_id[r].unsqueeze(1))
+        b["neg_plm"] = self.plm[rows].float()
+        b["neg_fp"] = self.unpack_fp(rows.flatten()).view(len(r), k, -1)
+        b["neg_ok"] = ok
+        return b
 
     def sample(self, batch: int, gen: torch.Generator, local_frac: float = 0.5) -> torch.Tensor:
         """One spectrum per molecule; local_frac of molecules from one contiguous mass window."""
