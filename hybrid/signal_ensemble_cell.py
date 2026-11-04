@@ -89,6 +89,21 @@ def mrr_of(order_col, df, ascending=True):
         out[m] = 1 / (hit[0] + 1) if len(hit) else 0.0
     return pd.Series(out)
 
+APPLY = "__APPLY__"                 # kernel holding a trained ranker.txt: apply it here (transfer test), then stop
+if APPLY and not APPLY.startswith("__"):
+    import lightgbm as lgb
+    _rk = [p for p in glob.glob("/kaggle/input/**/ranker.txt", recursive=True) if APPLY in p][0]
+    _meta = json.load(open(os.path.join(os.path.dirname(_rk), "ranker_meta.json")))
+    for c in _meta["feats"]:
+        if c not in T:
+            print("feature missing here, filled with 26:", c); T[c] = 26
+    T["app"] = lgb.Booster(model_file=_rk).predict(T[_meta["feats"]])
+    T["app_keep1"] = np.where(T.base_rank == 1, np.inf, T.app)
+    cls = A.set_index("molecule_id").cls
+    for name, col, asc in [("base", "base_rank", True), ("ranker", "app", False), ("ranker, rank 1 kept", "app_keep1", False)]:
+        r = mrr_of(col, T, ascending=asc)
+        print(f"TRANSFER {name:<22s} all {r.mean():.4f}  " + "  ".join(f"class{k} {v:.4f}" for k, v in r.groupby(cls.reindex(r.index)).mean().items()))
+    raise SystemExit
 base = mrr_of("base_rank", T)
 mols = np.array(sorted(T.molecule_id.unique()))
 fold_of = dict(zip(mols, rng.permutation(len(mols)) % FOLDS))
@@ -132,6 +147,9 @@ for f in range(FOLDS):
     T.loc[te.index, "lgb"] = rk.predict(te[FEATS])
     imp += rk.booster_.feature_importance("gain")
 res.append(gate(mrr_of("lgb", T, ascending=False), "LambdaRank on all signals"))
+# leader-safe: the pipeline's rank 1 stays, the ranker only re-orders ranks 2-25 (class-1 library hits are safe)
+T["lgb_keep1"] = np.where(T.base_rank == 1, np.inf, T.lgb)
+res.append(gate(mrr_of("lgb_keep1", T, ascending=False), "LambdaRank, rank 1 kept"))
 print("top features (gain):", [FEATS[i] for i in np.argsort(-imp)[:12]])
 # 3) same ranker without our model's heads: how much do they add?
 T["lgb0"] = np.nan
