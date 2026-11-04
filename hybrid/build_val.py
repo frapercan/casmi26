@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--n1", type=int, default=80)
     ap.add_argument("--n2", type=int, default=170)
     ap.add_argument("--dry", default="")
+    ap.add_argument("--ext", type=int, default=0, help="honest eval: N external Enveda-180 molecules absent from train")
     a = ap.parse_args()
     nb = copy.deepcopy(json.load(open(a.upstream)))
     code = [c for c in nb["cells"] if c["cell_type"] == "code"]
@@ -67,7 +68,10 @@ def main():
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         tar.add(os.path.join(ROOT, "src"), arcname="src", filter=lambda t: None if "__pycache__" in t.name else t)
-    pre = open(os.path.join(ROOT, "hybrid", "val_pre_cell.py")).read().replace("__N_CLS__", repr({1: a.n1, 2: a.n2}))
+    if a.ext:
+        pre = open(os.path.join(ROOT, "hybrid", "ext_pre_cell.py")).read().replace("__N_MOL__", str(a.ext))
+    else:
+        pre = open(os.path.join(ROOT, "hybrid", "val_pre_cell.py")).read().replace("__N_CLS__", repr({1: a.n1, 2: a.n2}))
     post = open(os.path.join(ROOT, "hybrid", "val_post_cell.py")).read().replace("__PAYLOAD__", base64.b64encode(buf.getvalue()).decode())
     mk = lambda s: {"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [], "source": s}
     nb["cells"].insert(0, mk(pre))
@@ -85,7 +89,8 @@ def main():
                                "dmitriigluzdov/casmi26-natural-product-knowledge-table", "dmitriigluzdov/casmi26-natural-product-panel-benchmark",
                                "dmitriigluzdov/casmi26-pubchem-popularity-prior", "dmitriigluzdov/casmi26-attributed-v4g-reproduction-assets",
                                "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel"],
-        "kernelDataSources": ["bgunshui/casmi26-scorer-train-public", "xaxipirulazo/casmi26-train-v2", "xaxipirulazo/casmi26-train-v3"],
+        "kernelDataSources": ["bgunshui/casmi26-scorer-train-public", "xaxipirulazo/casmi26-train-v2", "xaxipirulazo/casmi26-train-v3"]
+                             + (["xaxipirulazo/casmi26-e180"] if a.ext else []),
     })
     print(r.status_code, r.text[:400])
 

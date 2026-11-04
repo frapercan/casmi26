@@ -7,6 +7,8 @@ tarfile.open(fileobj=io.BytesIO(base64.b64decode("__PAYLOAD__"))).extractall(_co
 sys.path.insert(0, _code + "/src")
 from casmi.metric import ik14
 ANS = pd.read_parquet("/kaggle/working/val_answers.parquet")
+if "inchikey14" not in ANS:  # external queries: answer key from the official canonicalisation
+    ANS["inchikey14"] = ANS.smiles.map(ik14)
 TRUE = dict(zip(ANS.molecule_id, ANS.inchikey14)); CLS = dict(zip(ANS.molecule_id, ANS.cls))
 _ikc = {}
 def _ik(s):
