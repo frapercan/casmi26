@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--n1", type=int, default=80)
     ap.add_argument("--n2", type=int, default=170)
     ap.add_argument("--dry", default="")
+    ap.add_argument("--extra-src", action="append", default=[], help="extra kernel source (owner/slug)")
     ap.add_argument("--ext", type=int, default=0, help="honest eval: N external Enveda-180 molecules absent from train")
     a = ap.parse_args()
     nb = copy.deepcopy(json.load(open(a.upstream)))
@@ -90,7 +91,7 @@ def main():
                                "dmitriigluzdov/casmi26-pubchem-popularity-prior", "dmitriigluzdov/casmi26-attributed-v4g-reproduction-assets",
                                "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel"],
         "kernelDataSources": ["bgunshui/casmi26-scorer-train-public", "xaxipirulazo/casmi26-train-v2", "xaxipirulazo/casmi26-train-v3"]
-                             + (["xaxipirulazo/casmi26-e180"] if a.ext else []),
+                             + (["xaxipirulazo/casmi26-e180"] if a.ext else []) + a.extra_src,
     })
     print(r.status_code, r.text[:400])
 
