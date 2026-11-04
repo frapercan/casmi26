@@ -155,4 +155,13 @@ for f in range(FOLDS):
     T.loc[te.index, "lgbp"] = rk.predict(te[FEATS])
 res.append(gate(mrr_of("lgbp", T, ascending=False), "CONTROL: shuffled labels"))
 json.dump(res, open("/kaggle/working/signal_ensemble.json", "w"), indent=1)
+# final ranker on every molecule, for the submission notebook (same features, same hyper-parameters)
+fin = lgb.LGBMRanker(objective="lambdarank", n_estimators=300, learning_rate=0.03, num_leaves=15,
+                     min_child_samples=40, subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
+                     lambdarank_truncation_level=25, random_state=SEED, verbose=-1)
+Ts = T.sort_values("molecule_id")
+fin.fit(Ts[FEATS], Ts.hit, group=Ts.groupby("molecule_id", sort=True).size().to_numpy())
+fin.booster_.save_model("/kaggle/working/ranker.txt")
+json.dump({"feats": FEATS, "vcols": vcols, "heads": heads, "featset": FEATSET}, open("/kaggle/working/ranker_meta.json", "w"))
+print("FINAL ranker saved:", len(FEATS), "features")
 print("SIGNAL ENSEMBLE DONE")
