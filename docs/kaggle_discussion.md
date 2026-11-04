@@ -112,6 +112,12 @@ with our separately trained model, at three blend weights:
 * **Adding the 775 missing Enveda-180 structures to the spectral library**: 0.480 → 0.480 on the public
   board. They are either not in the public test or do not change its ranks.
 * **Train-based validation**: +0.019 locally vs −0.017 on the board (section 1).
+* **Evaluating one cell and deploying to all.** A candidate-level re-ranker passed our gate on the leak-free
+  set (+0.037, CI > 0, 8/10 folds) and scored **0.382** on the board. The leak-free set has no class-1
+  molecules by construction, so the re-ranker learned to distrust the pipeline's rank 1; on the test, class-1
+  library hits sit at rank 1 and it pushed them down. Adding a class-1 cell (held-out spectra of library
+  structures) shows it at once: −0.152 on class 1. Lesson borrowed from CAFA and now built into the gate:
+  **a change must improve its target cell and must not degrade any other cell.**
 
 ## 6. What we are looking for
 
@@ -126,4 +132,4 @@ The merger deadline is **7 December**. Reply here or message us.
 
 ---
 
-<sub>Changelog · v0.2 (2026-11-04): first honest-set results (§4). · v0.1 (2026-11-04): first draft.</sub>
+<sub>Changelog · v0.3 (2026-11-04): one-cell-deployment negative result (§5). · v0.2 (2026-11-04): first honest-set results (§4). · v0.1 (2026-11-04): first draft.</sub>
