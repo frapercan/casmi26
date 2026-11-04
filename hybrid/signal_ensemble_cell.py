@@ -27,6 +27,12 @@ A = pd.read_parquet(f"{R}/val_answers.parquet")
 if "inchikey14" not in A:
     A["inchikey14"] = A.smiles.map(ik14)
 TRUE = dict(zip(A.molecule_id, A.inchikey14))
+HEADS_FROM = "__HEADS__"            # optional parquet whose head scores replace ours (e.g. the spectrum-blind control)
+if HEADS_FROM and not HEADS_FROM.startswith("__"):
+    Bf = pd.read_parquet(HEADS_FROM)
+    hcols = [c for c in ["nce", "fp", "sae", "jepa", "fwd"] if c in Bf]
+    T = T.drop(columns=hcols).merge(Bf[["molecule_id", "base_rank"] + hcols], on=["molecule_id", "base_rank"])
+    print("head scores replaced from", HEADS_FROM)
 T["ik"] = T.smiles.map(ik14)
 T["hit"] = (T.ik == T.molecule_id.map(TRUE)).astype(int)
 print(f"{T.molecule_id.nunique()} molecules, {len(T)} candidates, truth in list for {T.groupby('molecule_id').hit.max().mean():.3f}")
