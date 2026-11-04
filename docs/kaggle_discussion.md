@@ -73,18 +73,36 @@ paired intervals; see the CAFA-evaluator and our fork cafaeval-protea used in PR
 6. **Gate.** A change counts only if it is positive in ≥ 8 of 10 disjoint molecule folds (chosen on nine,
    applied blind to the tenth) **and** its CI lower bound is above zero.
 
-## 4. Results
+## 4. Results (400 leak-free molecules, public pipeline without the withdrawn scorer)
 
-*[TBD: filled from the notebook once the runs finish.]*
+**The honest set reproduces the board's direction; the train-based one did not.** Re-ranking the top-25
+with our separately trained model, at three blend weights:
 
-| arm | MRR@25 | Δ vs base | 95% CI |
+| blend weight | train-based validation | honest set | public board |
 |---|---|---|---|
-| public 0.480 pipeline (base) | – | – | – |
-| … | | | |
+| base | 0.780 | 0.520 | 0.480 |
+| 0.5 | 0.799 (+0.019) | 0.463 (−0.057) | 0.463 (−0.017) |
+| 0.75 | 0.794 | 0.407 (−0.113) | 0.397 (−0.083) |
+| 1.0 | 0.787 | 0.335 (−0.185) | 0.381 (−0.099) |
 
-* Oracle ceiling over all arms: *[TBD]*
-* Where the arms disagree (strata): *[TBD]*
-* Gated router on observables: *[TBD: pass / fail]*
+**Pipeline variants are within noise of each other.** Paired 95% CIs against the final submission (0.520):
+
+| arm | MRR@25 | Δ | 95% CI |
+|---|---|---|---|
+| variant V3 | 0.524 | +0.004 | [−0.003, +0.010] |
+| variant V2 | 0.522 | +0.002 | [−0.004, +0.008] |
+| CUSTOM / control V2 | 0.518 | −0.001 | [−0.008, +0.004] |
+| reference / E004 / public 0.466 | 0.512–0.515 | −0.005 to −0.007 | all cross 0 |
+| V0 / baseline 0.465 | 0.508 | −0.012 | [−0.022, −0.002] |
+
+* The truth is outside the pipeline's top-25 for **20%** of these molecules.
+* **Oracle ceiling over all arms: 0.624 (+0.104)**; some arm beats the final submission on 130/400 molecules.
+  The single best partner for a two-arm oracle is a fingerprint-prediction scorer that is poor on its own
+  (0.320) but right where the pipeline is wrong (+0.061 as an oracle partner): the information is
+  complementary, the difficulty is knowing when to trust it.
+* **A molecule-level router on observables fails the gate** (+0.003, CI [−0.003, +0.008], 7/10 folds).
+  Mass, number of spectra, peak count and polarity do not tell you which arm to trust.
+* Weakest observable stratum: molecules with a single spectrum (0.159, n = 15).
 
 ## 5. Negative results we are happy to share
 
@@ -108,4 +126,4 @@ The merger deadline is **7 December**. Reply here or message us.
 
 ---
 
-<sub>Changelog · v0.1 (2026-11-04): first draft, results pending.</sub>
+<sub>Changelog · v0.2 (2026-11-04): first honest-set results (§4). · v0.1 (2026-11-04): first draft.</sub>
