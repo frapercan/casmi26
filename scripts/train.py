@@ -98,6 +98,7 @@ def main():
     ap.add_argument("--fwd", action="store_true", help="forward world-model head (molecule + conditions -> spectrum latent)")
     ap.add_argument("--hard-k", type=int, default=0, help="database same-mass negatives per spectrum (needs --gpu-data)")
     ap.add_argument("--hard-ppm", type=float, default=10.0)
+    ap.add_argument("--hard-pool", type=int, default=0, help="draw this many same-mass candidates, keep the hard-k most Tanimoto-similar")
     ap.add_argument("--w-hard", type=float, default=1.0)
     ap.add_argument("--w-fwd", type=float, default=1.0)
     ap.add_argument("--wd", type=float, default=0.01)
@@ -143,7 +144,7 @@ def main():
         def batches():
             while True:
                 b = gs.collate(gs.sample(a.batch, gen, a.local_frac))
-                yield gs.hard_negatives(b, a.hard_k, gen, a.hard_ppm) if a.hard_k else b
+                yield gs.hard_negatives(b, a.hard_k, gen, a.hard_ppm, a.hard_pool) if a.hard_k else b
         print(f"GPUStore: {gs.n_spec} spectra, {gs.n_mol} train molecules on {dev}", flush=True)
     else:
         sampler = MassLocalSampler(st, tr_rows, a.batch, seed=a.seed)

@@ -76,18 +76,29 @@ class GPUStore:
                 "ce": self.ce[sidx], "mol_id": self.row[sidx],
                 "plm": self.plm[r].float(), "fp": self.unpack_fp(r)}
 
-    def hard_negatives(self, b: dict, k: int, gen: torch.Generator, ppm: float = 10.0) -> dict:
-        """k database molecules within ppm of each spectrum's molecule (same structure masked out)."""
+    def hard_negatives(self, b: dict, k: int, gen: torch.Generator, ppm: float = 10.0, pool: int = 0) -> dict:
+        """k database molecules within ppm of each spectrum's molecule (same structure masked out).
+        pool > k: draw `pool` same-mass candidates and keep the k most similar to the true structure
+        (Tanimoto on Morgan bits), i.e. the near-isomers a strong retrieval pipeline puts in its top-25."""
         r = b["mol_id"].clamp(min=0)
         m = self.mol_mass[r]
         tol = torch.clamp(m * ppm * 1e-6, min=0.003)
         lo = torch.searchsorted(self.db_mass, m - tol)
         hi = torch.searchsorted(self.db_mass, m + tol, right=True)
         n = (hi - lo).clamp(min=0)
-        pick = lo.unsqueeze(1) + (torch.rand(len(r), k, device=self.dev, generator=gen) * n.unsqueeze(1)).long()
+        draw = max(k, pool)
+        pick = lo.unsqueeze(1) + (torch.rand(len(r), draw, device=self.dev, generator=gen) * n.unsqueeze(1)).long()
         pick = pick.clamp(max=len(self.db_rows) - 1)
-        rows = self.db_rows[pick]                                                   # (B,k)
+        rows = self.db_rows[pick]                                                   # (B,draw)
         ok = (n > 0).unsqueeze(1) & (self.ik_id[rows] != self.ik_id[r].unsqueeze(1))
+        if draw > k:
+            fq = b["fp"].half()                                                     # (B,F) true structure
+            fc = self.unpack_fp(rows.flatten()).view(len(r), draw, -1).half()       # (B,draw,F)
+            inter = torch.einsum("bf,bdf->bd", fq, fc).float()
+            tani = inter / (fq.float().sum(-1, keepdim=True) + fc.float().sum(-1) - inter + 1e-6)
+            tani = tani.masked_fill(~ok, -1.0)
+            top = tani.topk(k, dim=1).indices
+            rows, ok = rows.gather(1, top), ok.gather(1, top)
         b["neg_plm"] = self.plm[rows].float()
         b["neg_fp"] = self.unpack_fp(rows.flatten()).view(len(r), k, -1)
         b["neg_ok"] = ok
