@@ -64,7 +64,8 @@ def unpack_bits(x):
     return ((x[..., None] & bits) > 0).reshape(*x.shape[:-1], -1).astype(jnp.float32)
 
 
-def sample_batch(a: dict, key, batch: int, local_frac: float, hard_k: int = 0, hard_ppm: float = 10.0) -> dict:
+def sample_batch(a: dict, key, batch: int, local_frac: float, hard_k: int = 0, hard_ppm: float = 10.0,
+                 hard_pool: int = 0) -> dict:
     """Jittable: one spectrum for each of `batch` molecules (local_frac from one mass window), plus
     hard_k database negatives within hard_ppm of each molecule."""
     k1, k2, k3, k4 = jax.random.split(key, 4)
@@ -84,9 +85,18 @@ def sample_batch(a: dict, key, batch: int, local_frac: float, hard_k: int = 0, h
         lo = jnp.searchsorted(a["db_mass"], mm - tol)
         hi = jnp.searchsorted(a["db_mass"], mm + tol, side="right")
         n = jnp.maximum(hi - lo, 0)
-        nb = (lo[:, None] + (jax.random.uniform(k4, (batch, hard_k)) * n[:, None]).astype(jnp.int32))
+        draw = max(hard_k, hard_pool)
+        nb = (lo[:, None] + (jax.random.uniform(k4, (batch, draw)) * n[:, None]).astype(jnp.int32))
         rows = a["db_rows"][jnp.minimum(nb, a["db_rows"].shape[0] - 1)]
+        ok = (n > 0)[:, None] & (a["ik_id"][rows] != a["ik_id"][r][:, None])
+        if draw > hard_k:  # keep the hard_k most Tanimoto-similar near-isomers of the true structure
+            fc = unpack_bits(a["fp"][rows]).astype(jnp.bfloat16)
+            fq = b["fp"].astype(jnp.bfloat16)
+            inter = jnp.einsum("bf,bdf->bd", fq, fc, preferred_element_type=jnp.float32)
+            tani = inter / (fq.astype(jnp.float32).sum(-1, keepdims=True) + fc.astype(jnp.float32).sum(-1) - inter + 1e-6)
+            top = jax.lax.top_k(jnp.where(ok, tani, -1.0), hard_k)[1]
+            rows, ok = jnp.take_along_axis(rows, top, 1), jnp.take_along_axis(ok, top, 1)
         b["neg_plm"] = a["plm"][rows].astype(jnp.float32)
         b["neg_fp"] = unpack_bits(a["fp"][rows])
-        b["neg_ok"] = (n > 0)[:, None] & (a["ik_id"][rows] != a["ik_id"][r][:, None])
+        b["neg_ok"] = ok
     return b

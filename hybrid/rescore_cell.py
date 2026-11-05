@@ -13,13 +13,25 @@ from casmi.plm import PLMEmbedder
 from casmi.predict import MolFeaturizer, load_model, model_scores, query_batch
 from casmi.search import prep_query
 t0 = time.time()
-ck = [h for h in glob.glob("/kaggle/input/**/work/runs/run/best.pt", recursive=True) if CKPT_KERNEL in h][0]
-W = ck[:-len("/runs/run/best.pt")]
+_jx = [h for h in glob.glob("/kaggle/input/**/best.msgpack", recursive=True) if CKPT_KERNEL in h]
+if _jx:   # JAX/Flax checkpoint (TPU run): data and PLM come from the torch work dirs attached alongside
+    ck = _jx[0]
+    W = sorted(glob.glob("/kaggle/input/**/work/emb/plm_mean.npy", recursive=True))[0][:-len("/emb/plm_mean.npy")]
+else:
+    ck = [h for h in glob.glob("/kaggle/input/**/work/runs/run/best.pt", recursive=True) if CKPT_KERNEL in h][0]
+    W = ck[:-len("/runs/run/best.pt")]
 anyp = lambda rel: [p for p in [f"{W}/{rel}"] + sorted(glob.glob(f"/kaggle/input/**/work/{rel}", recursive=True)) if os.path.exists(p)][0]
 dev = "cuda" if torch.cuda.is_available() else "cpu"
-model, sae = load_model(ck, anyp("runs/sae.pt"), dev)
+if _jx:
+    os.system("pip install -q flax optax 2>&1 | tail -1")
+    from casmi_jax.predict import JaxScorer
+    _js = JaxScorer(os.path.dirname(ck))
+    model, sae = None, None
+    model_scores = lambda _m, _s, b, plm, fp: _js(b, plm, fp)   # same interface as casmi.predict.model_scores
+else:
+    model, sae = load_model(ck, anyp("runs/sae.pt"), dev)
 feat = MolFeaturizer(PLMEmbedder(os.path.dirname(anyp("plm/config.json")), device=dev, mean=np.load(anyp("emb/plm_mean.npy"))), dev)
-print("RESCORE with", ck, "fwd head" if getattr(model, "has_fwd", False) else "", flush=True)
+print("RESCORE with", ck, flush=True)
 for cell, (key, _) in SRCS.items():
     R = os.path.dirname([p for p in glob.glob("/kaggle/input/**/val_rerank.parquet", recursive=True) if key in p][0])
     O = f"/kaggle/working/rescored/{cell}"

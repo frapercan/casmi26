@@ -113,6 +113,7 @@ def main():
     ap.add_argument("--fwd", action="store_true")
     ap.add_argument("--hard-k", type=int, default=0)
     ap.add_argument("--hard-ppm", type=float, default=10.0)
+    ap.add_argument("--hard-pool", type=int, default=0)
     ap.add_argument("--wd", type=float, default=0.01)
     ap.add_argument("--drop", type=float, default=0.1)
     ap.add_argument("--bf16", action="store_true", help="bf16 compute (fp32 params)")
@@ -143,7 +144,7 @@ def main():
                          dtype=jnp.bfloat16 if a.bf16 else jnp.float32)
     key = jax.random.PRNGKey(a.seed)
     key, kinit, kb = jax.random.split(key, 3)
-    b0 = sample_batch(js.a, kb, 8, a.local_frac, a.hard_k, a.hard_ppm)
+    b0 = sample_batch(js.a, kb, 8, a.local_frac, a.hard_k, a.hard_ppm, a.hard_pool)
     params = model.init({"params": kinit, "dropout": kinit}, b0)["params"]
     print("params", sum(x.size for x in jax.tree_util.tree_leaves(params)), flush=True)
     steps_per_epoch = max(1, int(n_mol / (a.batch * a.local_frac)))
@@ -163,7 +164,7 @@ def main():
     @jax.jit  # the store is an argument, never a closure: closed-over arrays become compile-time constants
     def step(params, opt_state, store, key):
         kb, kd = jax.random.split(key)
-        b = sample_batch(store, kb, a.batch, a.local_frac, a.hard_k, a.hard_ppm)
+        b = sample_batch(store, kb, a.batch, a.local_frac, a.hard_k, a.hard_ppm, a.hard_pool)
         b = jax.lax.with_sharding_constraint(b, shard)
         (loss, info), g = jax.value_and_grad(lambda p: losses(model, p, b, kd, **lw), has_aux=True)(params)
         upd, opt_state = opt.update(g, opt_state, params)
@@ -197,6 +198,7 @@ def main():
     ev = evaluate(score, params, st, hold, a.ppm)
     print("FINAL holdout (all):", json.dumps(ev), flush=True)
     json.dump({"args": vars(a), "log": log, "final": ev}, open(f"{a.out}/log.json", "w"), indent=1)
+    json.dump(vars(a), open(f"{a.out}/args.json", "w"))
     if a.results:
         with open(a.results, "a") as f:
             f.write(json.dumps({"tag": a.tag, "framework": "jax", "device": devs[0].device_kind, "n_dev": len(devs),
