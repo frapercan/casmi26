@@ -6,7 +6,8 @@
 import glob, json, os
 import numpy as np, pandas as pd
 import lightgbm as lgb
-SRCS = __SRCS__          # {cell: (kernel substring, keep only this answers.cls or None)}
+SRCS = __SRCS__          # {cell: (path substring, keep only this answers.cls or None)}
+HEADS = __HEADS__        # our model's heads used as ranker features
 FOLDS, SEED, N_BOOT = 10, 0, 5000
 MIX = {"public mix (c1 .18, c2 .07)": {1: .18, 2: .07}, "c2-heavy (c1 .15, c2 .25)": {1: .15, 2: .25}}
 rng = np.random.default_rng(SEED)
@@ -24,21 +25,26 @@ def ik14(s):
     return _ikc[s]
 
 def load(cell, key, keep_cls):
-    R = os.path.dirname([p for p in glob.glob("/kaggle/input/**/val_rerank.parquet", recursive=True) if key in p][0])
+    resc = f"/kaggle/working/rescored/{cell}/val_rerank.parquet"   # re-scored with a new checkpoint wins
+    R = os.path.dirname(resc if os.path.exists(resc) else
+                        [p for p in glob.glob("/kaggle/input/**/val_rerank.parquet", recursive=True) if key in p][0])
     T = pd.read_parquet(f"{R}/val_rerank.parquet")
     A = pd.read_parquet(f"{R}/val_answers.parquet")
     if "inchikey14" not in A:
         A["inchikey14"] = A.smiles.map(ik14)
     if keep_cls is not None:
         A = A[A.cls == keep_cls]
-    T = T[T.molecule_id.isin(set(A.molecule_id))].drop(columns=[c for c in ["nce", "sae", "jepa", "fwd"] if c in T])
+    T = T[T.molecule_id.isin(set(A.molecule_id))].drop(columns=[c for c in ["nce", "fp", "sae", "jepa", "fwd"] if c in T and c not in HEADS])
     true = dict(zip(A.molecule_id, A.inchikey14))
     T["ik"] = T.smiles.map(ik14)
     T["hit"] = (T.ik == T.molecule_id.map(true)).astype(int)
     g = T.groupby("molecule_id")
-    T["fp_z"] = (T.fp - g.fp.transform("mean")) / (g.fp.transform("std") + 1e-6)
-    T["fp_rk"] = g.fp.rank(ascending=False, method="first")
-    T["fp_gap"] = T.fp - g.fp.transform("max")
+    for h in HEADS:
+        T[f"{h}_z"] = (T[h] - g[h].transform("mean")) / (g[h].transform("std") + 1e-6)
+        T[f"{h}_rk"] = g[h].rank(ascending=False, method="first")
+        T[f"{h}_gap"] = T[h] - g[h].transform("max")
+        top = T.loc[g[h].idxmax()]
+        print(f"   {cell} head {h:<4s} alone: hit@1 within top-25 {top.hit.mean():.3f}")
     T["inv_base"] = 1 / T.base_rank
     T["n_cand"] = g.smiles.transform("size")
     for p in sorted(glob.glob(f"{R}/*.csv") + glob.glob(f"{R}/variants/*.csv")):
@@ -62,7 +68,8 @@ def load(cell, key, keep_cls):
 T = pd.concat([load(c, k, kc) for c, (k, kc) in SRCS.items()], ignore_index=True)
 vcols = sorted(c for c in T if c.startswith("v_") and T[c].notna().all())
 T["v_mean"] = T[vcols].mean(axis=1); T["v_min"] = T[vcols].min(axis=1); T["v_top1_votes"] = (T[vcols] == 1).sum(axis=1)
-FEATS = ["base_rank", "inv_base", "n_cand", "v_mean", "v_min", "v_top1_votes", "mass", "n_spec", "fp", "fp_z", "fp_rk", "fp_gap"] + vcols
+FEATS = (["base_rank", "inv_base", "n_cand", "v_mean", "v_min", "v_top1_votes", "mass", "n_spec"]
+         + [f"{h}{x}" for h in HEADS for x in ["", "_z", "_rk", "_gap"]] + vcols)
 print("features", len(FEATS), "| variant columns shared by every cell:", len(vcols))
 
 def mrr_of(col, df, asc):
