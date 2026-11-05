@@ -9,6 +9,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--upstream", required=True)
 ap.add_argument("--slug", required=True)
 ap.add_argument("--w", type=float, default=0.5)
+ap.add_argument("--variant", default="", help="ship this pipeline variant file (e.g. V3) instead of re-ranking")
 ap.add_argument("--ranker", default="", help="kernel holding ranker.txt: use the learned ranker cell instead of the RRF blend")
 ap.add_argument("--keep-top", type=int, default=1)
 ap.add_argument("--hw", default='{"nce": 0.5, "fp": 0.5, "sae": 1.0}')
@@ -18,7 +19,8 @@ nb = json.load(open(a.upstream))
 buf = io.BytesIO()
 with tarfile.open(fileobj=buf, mode="w:gz") as tar:
     tar.add(os.path.join(ROOT, "src"), arcname="src", filter=lambda t: None if "__pycache__" in t.name else t)
-cell = (open(os.path.join(ROOT, "hybrid", "ranker_cell.py")).read().replace("__RANKER__", repr(a.ranker))
+cell = (open(os.path.join(ROOT, "hybrid", "variant_cell.py")).read().replace("__VARIANT__", repr(a.variant)) if a.variant else
+        open(os.path.join(ROOT, "hybrid", "ranker_cell.py")).read().replace("__RANKER__", repr(a.ranker))
         if a.ranker else open(os.path.join(ROOT, "hybrid", "rerank_cell.py")).read()) \
     .replace("__OUR_W__", repr(a.w)).replace("__KEEP_TOP__", repr(bool(a.keep_top))) \
     .replace("__HW__", repr(json.loads(a.hw))).replace("__CKPT__", repr(a.ckpt)).replace("__PAYLOAD__", base64.b64encode(buf.getvalue()).decode())
