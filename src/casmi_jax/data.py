@@ -51,6 +51,10 @@ class JaxStore:
         # masses in mDa as int64 would need x64; float32 of (mass - 0) loses ~3e-5 Da at 500 Da: fine for a 10 ppm window
         self.a["db_rows"] = jnp.asarray(db[so], jnp.int32)
         self.a["db_mass"] = jnp.asarray(dm[so], jnp.float32)
+        am = mols.exact_mass.to_numpy()                         # every molecule (database + train), for --neg-all
+        ao = np.argsort(am)
+        self.a["all_rows"] = jnp.asarray(ao, jnp.int32)
+        self.a["all_mass"] = jnp.asarray(am[ao], jnp.float32)
         self.a["mol_mass"] = jnp.asarray(mols.exact_mass.to_numpy(), jnp.float32)
         self.a["ik_id"] = jnp.asarray(pd.factorize(mols.inchikey14)[0], jnp.int32)
         self.n_mol = len(uniq)
@@ -65,7 +69,7 @@ def unpack_bits(x):
 
 
 def sample_batch(a: dict, key, batch: int, local_frac: float, hard_k: int = 0, hard_ppm: float = 10.0,
-                 hard_pool: int = 0) -> dict:
+                 hard_pool: int = 0, neg_all: bool = False) -> dict:
     """Jittable: one spectrum for each of `batch` molecules (local_frac from one mass window), plus
     hard_k database negatives within hard_ppm of each molecule."""
     k1, k2, k3, k4 = jax.random.split(key, 4)
@@ -82,12 +86,13 @@ def sample_batch(a: dict, key, batch: int, local_frac: float, hard_k: int = 0, h
     if hard_k:
         mm = a["mol_mass"][r]
         tol = jnp.maximum(mm * hard_ppm * 1e-6, 0.003)
-        lo = jnp.searchsorted(a["db_mass"], mm - tol)
-        hi = jnp.searchsorted(a["db_mass"], mm + tol, side="right")
+        src_rows, src_mass = (a["all_rows"], a["all_mass"]) if neg_all else (a["db_rows"], a["db_mass"])
+        lo = jnp.searchsorted(src_mass, mm - tol)
+        hi = jnp.searchsorted(src_mass, mm + tol, side="right")
         n = jnp.maximum(hi - lo, 0)
         draw = max(hard_k, hard_pool)
         nb = (lo[:, None] + (jax.random.uniform(k4, (batch, draw)) * n[:, None]).astype(jnp.int32))
-        rows = a["db_rows"][jnp.minimum(nb, a["db_rows"].shape[0] - 1)]
+        rows = src_rows[jnp.minimum(nb, src_rows.shape[0] - 1)]
         ok = (n > 0)[:, None] & (a["ik_id"][rows] != a["ik_id"][r][:, None])
         if draw > hard_k:  # keep the hard_k most Tanimoto-similar near-isomers of the true structure
             fc = unpack_bits(a["fp"][rows]).astype(jnp.bfloat16)

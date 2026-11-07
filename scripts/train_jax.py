@@ -114,6 +114,9 @@ def main():
     ap.add_argument("--hard-k", type=int, default=0)
     ap.add_argument("--hard-ppm", type=float, default=10.0)
     ap.add_argument("--hard-pool", type=int, default=0)
+    ap.add_argument("--neg-all", action="store_true", help="negatives from every molecule of the same mass (database + train)")
+    ap.add_argument("--self-mine", type=int, default=0, help="score --hard-pool same-mass candidates with the current model "
+                    "(no gradient) and keep the K it confuses most with the answer as hard negatives")
     ap.add_argument("--wd", type=float, default=0.01)
     ap.add_argument("--drop", type=float, default=0.1)
     ap.add_argument("--bf16", action="store_true", help="bf16 compute (fp32 params)")
@@ -144,7 +147,7 @@ def main():
                          dtype=jnp.bfloat16 if a.bf16 else jnp.float32)
     key = jax.random.PRNGKey(a.seed)
     key, kinit, kb = jax.random.split(key, 3)
-    b0 = sample_batch(js.a, kb, 8, a.local_frac, a.hard_k, a.hard_ppm, a.hard_pool)
+    b0 = sample_batch(js.a, kb, 8, a.local_frac, a.hard_k, a.hard_ppm, 0 if a.self_mine else a.hard_pool, a.neg_all)
     params = model.init({"params": kinit, "dropout": kinit}, b0)["params"]
     print("params", sum(x.size for x in jax.tree_util.tree_leaves(params)), flush=True)
     steps_per_epoch = max(1, int(n_mol / (a.batch * a.local_frac)))
@@ -164,7 +167,18 @@ def main():
     @jax.jit  # the store is an argument, never a closure: closed-over arrays become compile-time constants
     def step(params, opt_state, store, key):
         kb, kd = jax.random.split(key)
-        b = sample_batch(store, kb, a.batch, a.local_frac, a.hard_k, a.hard_ppm, a.hard_pool)
+        if a.self_mine:   # draw the whole pool, let the current model pick the negatives it confuses most
+            b = sample_batch(store, kb, a.batch, a.local_frac, max(a.hard_pool, a.self_mine), a.hard_ppm, 0, a.neg_all)
+            b = jax.lax.with_sharding_constraint(b, shard)
+            m = model.bind({"params": jax.lax.stop_gradient(params)})
+            zs = m.spec_emb(m.spec(b))
+            zn = m.mol_emb(b["neg_plm"], b["neg_fp"])
+            sim = jnp.where(b["neg_ok"], jnp.einsum("be,bke->bk", zs, zn), -2.0)
+            top = jax.lax.top_k(sim, a.self_mine)[1]
+            pick = lambda x: jnp.take_along_axis(x, top[..., None] if x.ndim == 3 else top, 1)
+            b = {**b, "neg_plm": pick(b["neg_plm"]), "neg_fp": pick(b["neg_fp"]), "neg_ok": pick(b["neg_ok"])}
+        else:
+            b = sample_batch(store, kb, a.batch, a.local_frac, a.hard_k, a.hard_ppm, a.hard_pool, a.neg_all)
         b = jax.lax.with_sharding_constraint(b, shard)
         (loss, info), g = jax.value_and_grad(lambda p: losses(model, p, b, kd, **lw), has_aux=True)(params)
         upd, opt_state = opt.update(g, opt_state, params)
