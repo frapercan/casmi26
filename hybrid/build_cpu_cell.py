@@ -12,14 +12,20 @@ ap.add_argument("--gpu", action="store_true")
 ap.add_argument("--sub", action="append", default=[], help="KEY=VALUE text substitutions in the cell")
 ap.add_argument("--src", action="append", default=[], help="kernel sources (slug under our account)")
 ap.add_argument("--pip", default="rdkit lightgbm")
+ap.add_argument("--data", default="", help="small local dir shipped as __DATA__ (private notebook only; never commit it)")
+ap.add_argument("--dataset", action="append", default=[], help="dataset sources (owner/slug)")
 a = ap.parse_args()
 import base64, io, tarfile
 buf = io.BytesIO()
 with tarfile.open(fileobj=buf, mode="w:gz") as tar:
     tar.add(os.path.join(os.path.dirname(__file__), "..", "src"), arcname="src", filter=lambda t: None if "__pycache__" in t.name else t)
+dbuf = io.BytesIO()
+if a.data:
+    with tarfile.open(fileobj=dbuf, mode="w:gz") as tar:
+        tar.add(a.data, arcname="data")
 cells = []
 for path in a.cell:
-    cell = open(path).read().replace("__PAYLOAD__", base64.b64encode(buf.getvalue()).decode())
+    cell = open(path).read().replace("__PAYLOAD__", base64.b64encode(buf.getvalue()).decode()).replace("__DATA__", base64.b64encode(dbuf.getvalue()).decode())
     for kv in a.sub:
         k, v = kv.split("=", 1); cell = cell.replace(k, v)
     cells.append(cell)
@@ -31,5 +37,5 @@ r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKerne
                   timeout=300, json={"slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": json.dumps(nb),
                   "language": "python", "kernelType": "notebook", "isPrivate": True, "enableGpu": a.gpu, "enableInternet": True,
                   "competitionDataSources": ["enveda-CASMI26-molecule-id-mass-spectra"],
-                  "kernelDataSources": [f"xaxipirulazo/{s}" for s in a.src]})
+                  "kernelDataSources": [f"xaxipirulazo/{s}" for s in a.src], "datasetDataSources": a.dataset})
 print(r.status_code, r.text[:300])
