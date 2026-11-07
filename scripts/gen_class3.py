@@ -125,6 +125,8 @@ def main():
     ap.add_argument("--ppm", type=float, default=10.0)
     ap.add_argument("--max-mols", type=int, default=0)
     ap.add_argument("--nl-weight", type=float, default=0.5)
+    ap.add_argument("--start", type=int, default=0, help="chunk of the cell's molecules (outputs get a _<start> suffix)")
+    ap.add_argument("--end", type=int, default=0)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     t0 = time.time()
@@ -144,6 +146,9 @@ def main():
     fpg = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
     rows, stats = [], []
     mids = A.molecule_id.tolist()[: a.max_mols or None]
+    if a.end:
+        mids = mids[a.start:a.end]
+    sfx = f"_{a.start:04d}" if a.end else ""
     for k, mid in enumerate(mids):
         g = q[q.molecule_id == mid]
         truth = A.set_index("molecule_id").inchikey14[mid]
@@ -187,8 +192,8 @@ def main():
             print(f"{k+1}/{len(mids)} recall {st.generated.mean():.3f} median cands {st.n_cand.median():.0f} "
                   f"[{time.time()-t0:.0f}s]", flush=True)
     R, St = pd.DataFrame(rows), pd.DataFrame(stats)
-    R.to_parquet(f"{a.out}/candidates.parquet", index=False)
-    St.to_parquet(f"{a.out}/stats.parquet", index=False)
+    R.to_parquet(f"{a.out}/candidates{sfx}.parquet", index=False)
+    St.to_parquet(f"{a.out}/stats{sfx}.parquet", index=False)
     rr = []
     for mid in St.molecule_id:
         d = R[R.molecule_id == mid].sort_values("naive", ascending=False) if len(R) else R
