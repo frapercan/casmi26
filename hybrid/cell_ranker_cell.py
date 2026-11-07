@@ -128,4 +128,14 @@ res.append(report(fit_predict(["class2"], keep1=True, name="c2keep"), "  ... ran
 res.append(report(fit_predict(["class1", "class2"], name="both"), "ranker trained on class 1 + class 2"))
 res.append(report(fit_predict(["class1", "class2"], keep1=True, name="bothkeep"), "  ... rank 1 kept"))
 json.dump(res, open("/kaggle/working/cell_ranker.json", "w"), indent=1)
+# final ranker on every molecule of every cell (submission): same features and hyper-parameters, rank 1 kept
+fin = lgb.LGBMRanker(objective="lambdarank", n_estimators=300, learning_rate=0.03, num_leaves=15,
+                     min_child_samples=40, subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
+                     lambdarank_truncation_level=25, random_state=SEED, verbose=-1)
+Ts = T.sort_values("molecule_id")
+fin.fit(Ts[FEATS], Ts.hit, group=Ts.groupby("molecule_id", sort=True).size().to_numpy())
+fin.booster_.save_model("/kaggle/working/ranker.txt")
+json.dump({"feats": FEATS, "vcols": vcols, "heads": HEADS, "featset": "cells-" + "+".join(HEADS), "keep_top": True},
+          open("/kaggle/working/ranker_meta.json", "w"))
+print("FINAL ranker saved (class 1 + class 2, rank 1 kept):", len(FEATS), "features")
 print("CELL RANKER DONE")

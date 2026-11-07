@@ -78,6 +78,8 @@ try:
     mq = _test.groupby("molecule_id").agg(mass=("precursor_mz", "median"), n_spec=("precursor_mz", "size"))
     T = T.join(mq, on="molecule_id")
     T["score"] = _booster.predict(T[_meta["feats"]])
+    if _meta.get("keep_top"):        # leader-safe: the pipeline's rank 1 stays first
+        T.loc[T.base_rank == 1, "score"] = np.inf
     new = {m: ";".join(d.sort_values("score", ascending=False, kind="stable").smiles) for m, d in T.groupby("molecule_id")}
     _out = [new.get(m, s) for m, s in zip(_sub.molecule_id, _sub.smiles)]
     _new = _sub.assign(smiles=_out)

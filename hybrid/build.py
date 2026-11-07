@@ -10,6 +10,7 @@ ap.add_argument("--upstream", required=True)
 ap.add_argument("--slug", required=True)
 ap.add_argument("--w", type=float, default=0.5)
 ap.add_argument("--variant", default="", help="ship this pipeline variant file (e.g. V3) instead of re-ranking")
+ap.add_argument("--extra-src", action="append", default=[], help="extra kernel sources (slug under our account)")
 ap.add_argument("--ranker", default="", help="kernel holding ranker.txt: use the learned ranker cell instead of the RRF blend")
 ap.add_argument("--keep-top", type=int, default=1)
 ap.add_argument("--hw", default='{"nce": 0.5, "fp": 0.5, "sae": 1.0}')
@@ -38,6 +39,6 @@ r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKerne
                            "dmitriigluzdov/casmi26-pubchem-popularity-prior", "dmitriigluzdov/casmi26-attributed-v4g-reproduction-assets",
                            "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel"],
     "kernelDataSources": ["bgunshui/casmi26-scorer-train-public", "xaxipirulazo/casmi26-train-v2", "xaxipirulazo/casmi26-train-v3"]
-                         + ([f"xaxipirulazo/{a.ranker}"] if a.ranker else []),
+                         + ([f"xaxipirulazo/{a.ranker}"] if a.ranker else []) + [f"xaxipirulazo/{x}" for x in a.extra_src],
 })
 print(r.status_code, r.text[:400])
