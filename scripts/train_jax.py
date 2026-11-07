@@ -25,7 +25,7 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec as P  # noqa: E402
 
 from casmi.data import SpectraStore  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
-from casmi.valset import excluded_spectra, load_exclude  # noqa: E402
+from casmi.valset import excluded_spectra, load_exclude, load_exclude_all  # noqa: E402
 from casmi_jax.data import JaxStore, sample_batch, unpack_bits  # noqa: E402
 from casmi_jax.model import SpecMolModel, l2n, losses  # noqa: E402
 
@@ -132,7 +132,7 @@ def main():
     assert a.batch % len(devs) == 0, "global batch must divide the device count"
 
     spec_cols = pd.read_parquet(f"{a.work}/lib/spectra.parquet", columns=["ingest_lib", "inchikey14"])
-    val_ex = excluded_spectra(spec_cols, load_exclude(a.val))
+    val_ex = excluded_spectra(spec_cols, load_exclude(a.val), load_exclude_all(a.val))
     st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb", exclude=val_ex)
     hold = pd.read_parquet(f"{a.work}/holdout.parquet").inchikey14.tolist()
     excl = set(hold) | set(st.spec.loc[st.spec.ingest_lib == "enveda-np-examples", "inchikey14"])

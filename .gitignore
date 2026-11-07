@@ -6,3 +6,4 @@ work/
 *.npz
 *.csv
 configs/weights.json
+splits/val3/

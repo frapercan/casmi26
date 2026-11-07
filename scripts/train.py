@@ -20,7 +20,7 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import MassLocalSampler, SpectraStore  # noqa: E402
 from casmi.gpustore import GPUStore  # noqa: E402
-from casmi.valset import excluded_spectra, load_exclude  # noqa: E402
+from casmi.valset import excluded_spectra, load_exclude, load_exclude_all  # noqa: E402
 from casmi.model import SpecMolModel, cond_vec, fwd_emb, losses, sae_pred  # noqa: E402
 from casmi.sae import TopKSAE  # noqa: E402
 from casmi.spectra import neutral_mass  # noqa: E402
@@ -117,7 +117,7 @@ def main():
         torch.backends.cudnn.allow_tf32 = True
 
     spec_cols = pd.read_parquet(f"{a.work}/lib/spectra.parquet", columns=["ingest_lib", "inchikey14"])
-    val_ex = excluded_spectra(spec_cols, load_exclude(a.val))
+    val_ex = excluded_spectra(spec_cols, load_exclude(a.val), load_exclude_all(a.val))
     print(f"validation set {a.val or '-'}: {val_ex.sum()} spectra hidden from training", flush=True)
     st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb", exclude=val_ex)
     hold = pd.read_parquet(f"{a.work}/holdout.parquet").inchikey14.tolist()

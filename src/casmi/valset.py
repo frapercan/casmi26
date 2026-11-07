@@ -14,9 +14,18 @@ def load_exclude(val_dir: str) -> set[str]:
     return set(open(p).read().split()) if val_dir and os.path.exists(p) else set()
 
 
-def excluded_spectra(spec: pd.DataFrame, exclude_ik: set[str]) -> np.ndarray:
+def load_exclude_all(val_dir: str) -> set[str]:
+    """Class-3 cell: molecules whose spectra are hidden from every library, not only enveda-180."""
+    p = os.path.join(val_dir, "exclude_all_ik.txt")
+    return set(open(p).read().split()) if val_dir and os.path.exists(p) else set()
+
+
+def excluded_spectra(spec: pd.DataFrame, exclude_ik: set[str], exclude_all: set[str] | None = None) -> np.ndarray:
     """Bool mask of library spectra hidden by the validation set: the enveda-180 spectra of
     validation molecules (class-1 molecules keep their spectra from other libraries)."""
-    if not exclude_ik:
-        return np.zeros(len(spec), bool)
-    return ((spec.ingest_lib == VAL_LIB) & spec.inchikey14.isin(exclude_ik)).to_numpy()
+    m = np.zeros(len(spec), bool)
+    if exclude_ik:
+        m |= ((spec.ingest_lib == VAL_LIB) & spec.inchikey14.isin(exclude_ik)).to_numpy()
+    if exclude_all:
+        m |= spec.inchikey14.isin(exclude_all).to_numpy()
+    return m
