@@ -14,10 +14,10 @@ for sub, pre in [("casmi-chebi-lmsd-structures", "bio"), ("casmi26-pubchemlite-c
         print(pre, int(new.sum()))
     except Exception as e:
         print(pre, "missing", repr(e)[:120])
-tr = pd.read_parquet(f"{VC}/train.parquet", columns=["inchikey14", "smiles"]).drop_duplicates("inchikey14")
+tr = pd.read_parquet(f"{VC}/train.parquet", columns=["inchikey14", "normalized_smiles"]).drop_duplicates("inchikey14")
 tr = tr[~tr.inchikey14.isin(set(keys))]
 tm = []
-for s in tr.smiles:
+for s in tr.normalized_smiles:
     m = Chem.MolFromSmiles(s); tm.append(ExactMolWt(m) if m is not None else np.nan)
 mass.append(np.array(tm))
 P = np.sort(np.concatenate(mass)); P = P[np.isfinite(P)]
