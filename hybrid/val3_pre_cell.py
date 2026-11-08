@@ -17,6 +17,11 @@ _real = os.path.dirname(glob.glob("/kaggle/input/**/enveda-CASMI26-molecule-id-m
 _vis = pd.read_parquet(f"{_real}/test.parquet")
 _Q = pd.read_parquet(f"{D3}/queries.parquet")
 _A = pd.read_parquet(f"{D3}/answers.parquet")
+# shaped like the hidden test (as ext_pre_cell.py): only adducts the test uses, and every molecule has an
+# [M+H]+ or [M-H]- spectrum (the pipeline's engine 2 does not cover molecules seen only as adducts)
+_Q = _Q[_Q.adduct.isin(set(_vis.adduct))]
+_Q = _Q[_Q.molecule_id.isin(set(_Q.molecule_id[_Q.adduct.isin(["[M+H]+", "[M-H]-"])]))]
+_A = _A[_A.molecule_id.isin(set(_Q.molecule_id))].reset_index(drop=True)
 _rng = np.random.default_rng(0)
 _mid = dict(zip(_A.molecule_id, [f"m_{x:06x}" for x in _rng.choice(16 ** 6, len(_A), replace=False)]))
 _Q["molecule_id"] = _Q.molecule_id.map(_mid)
