@@ -6,6 +6,7 @@
 import base64, glob, io, os, sys, tarfile, time
 import numpy as np, pandas as pd
 CKPT_KERNEL = "__CKPT__"
+CHUNKS = "__CHUNKS__"          # glob of chunk suffixes, e.g. "*" or "0162"
 t0 = time.time()
 _code = "/kaggle/working/casmi26_ours"
 tarfile.open(fileobj=io.BytesIO(base64.b64decode("__PAYLOAD__"))).extractall(_code)
@@ -27,8 +28,8 @@ dev = "cuda" if torch.cuda.is_available() else "cpu"
 model, sae = load_model(ck, anyp("runs/sae.pt"), dev)
 feat = MolFeaturizer(PLMEmbedder(os.path.dirname(anyp("plm/config.json")), device=dev, mean=np.load(anyp("emb/plm_mean.npy"))), dev)
 print("CLASS3 scoring with", ck, "on", dev, flush=True)
-C = pd.concat([pd.read_parquet(p) for p in sorted(glob.glob(f"{D}/candidates_*.parquet"))], ignore_index=True)
-St = pd.concat([pd.read_parquet(p) for p in sorted(glob.glob(f"{D}/stats_*.parquet"))], ignore_index=True)
+C = pd.concat([pd.read_parquet(p) for p in sorted(glob.glob(f"{D}/candidates_{CHUNKS}.parquet"))], ignore_index=True)
+St = pd.concat([pd.read_parquet(p) for p in sorted(glob.glob(f"{D}/stats_{CHUNKS}.parquet"))], ignore_index=True)
 Q = pd.read_parquet(f"{D}/queries.parquet")
 hide = set(open(f"{D}/exclude_all_ik.txt").read().split())
 q = prep_query(Q)
@@ -61,6 +62,10 @@ ARMS = {"naive": ["naive"], "parent_sim": ["parent_sim"], **{h: [h] for h in hea
         "fwd+naive": ["fwd", "naive"], "fwd+fp+naive": ["fwd", "fp", "naive"], "fwd+fp+nce+naive": ["fwd", "fp", "nce", "naive"],
         "fwd+fp+naive+edits": ["fwd", "fp", "naive", "edits"]}
 mids = St.molecule_id.tolist(); gen = set(St.molecule_id[St.generated])
+# a library molecule whose own key differs but whose official InChIKey14 equals the truth (tautomer/stereo
+# variants) makes the "unedited parent" a hit: that is a library hit in disguise, reported apart
+_alias = set(C.molecule_id[C.hit & (C.edits.fillna("") == "")])
+print(f"truth reachable as an unedited library molecule (key alias): {len(_alias)} molecules")
 rng = np.random.default_rng(0)
 def rr_of(cols):
     S["_s"] = sum(S[f"z_{c}"] for c in cols)
@@ -77,6 +82,9 @@ for name, cols in ARMS.items():
     lo, hi = np.percentile(d[rng.integers(0, len(d), (5000, len(d)))].mean(1), [2.5, 97.5])
     res[name] = dict(mrr=float(r.mean()), top1=float((r == 1).mean()), mrr_gen=float(r[list(gen)].mean()), delta=float(d.mean()), ci=[float(lo), float(hi)])
     print(f"{name:<22s} {r.mean():.4f}     {(r == 1).mean():.3f}  {r[list(gen)].mean():.4f}   {d.mean():+.4f} [{lo:+.4f},{hi:+.4f}]", flush=True)
+for name in ["naive", "fwd+fp", "fwd+fp+nce+naive"]:
+    r = rr_of(ARMS[name]); keep = [m for m in mids if m not in _alias]
+    print(f"  without key aliases ({len(keep)} mol): {name:<18s} MRR@25 {r[keep].mean():.4f}")
 print(f"ceiling (truth generated): {St.generated.mean():.3f} | median candidates {St.n_cand.median():.0f}")
 S.drop(columns=["_s"]).to_parquet("/kaggle/working/class3_scored.parquet", index=False)
 import json; json.dump(res, open("/kaggle/working/class3_arms.json", "w"), indent=1)
