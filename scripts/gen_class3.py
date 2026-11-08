@@ -106,17 +106,59 @@ def library_matrix(lib: Library, bins=1500):
             sp.csr_matrix((nvals, (nrows, ncols)), shape=(S, bins)))
 
 
-def apply_edits(mol, depth):
-    """All products of up to `depth` edits (sanitised, canonical SMILES -> edit path)."""
+DELTA = {}   # edit name -> monoisotopic mass change (constant per reaction; measured on library molecules)
+
+
+def edit_deltas(smiles, n_probe=3000):
+    """Measure each edit's mass change on library molecules; edits never seen to fire stay unknown."""
+    for smi in smiles[:n_probe]:
+        m = Chem.MolFromSmiles(smi)
+        if m is None:
+            continue
+        for name, rxn in RXN:
+            if name in DELTA:
+                continue
+            try:
+                prods = rxn.RunReactants((m,), maxProducts=1)
+                p = prods[0][0] if prods and len(prods[0]) == 1 else None
+                if p is not None:
+                    Chem.SanitizeMol(p)
+                    DELTA[name] = Descriptors.ExactMolWt(p) - Descriptors.ExactMolWt(m)
+            except Exception:
+                continue
+        if len(DELTA) == len(RXN):
+            break
+
+
+def _can_reach(mass_now, remaining, target, tol):
+    """Can <= `remaining` further edits (any combination of known deltas) bring mass_now to target?
+    Exact pruning for the final mass filter; disabled when some edit's delta is unknown."""
+    if target is None or len(DELTA) < len(RXN):
+        return True
+    d = target - mass_now
+    if abs(d) <= tol:
+        return True
+    if remaining == 0:
+        return False
+    return any(_can_reach(mass_now + v, remaining - 1, target, tol) for v in DELTA.values())
+
+
+def apply_edits(mol, depth, target=None, tol=0.0):
+    """All products of up to `depth` edits (sanitised, canonical SMILES -> edit path). With a target mass,
+    products that can no longer reach it within the remaining edits are not expanded (same final set after
+    the mass filter, much less work)."""
     out = {}
-    frontier = {Chem.MolToSmiles(mol): ()}
-    for _ in range(depth):
+    frontier = {Chem.MolToSmiles(mol): (Descriptors.ExactMolWt(mol), ())}
+    for level in range(depth):
+        remaining = depth - level - 1
         nxt = {}
-        for smi, path in frontier.items():
+        for smi, (mw, path) in frontier.items():
             m = Chem.MolFromSmiles(smi)
             if m is None:
                 continue
             for name, rxn in RXN:
+                if name in DELTA and not _can_reach(mw + DELTA[name], remaining, target, tol):
+                    continue
                 try:
                     prods = rxn.RunReactants((m,), maxProducts=MAX_PRODUCTS)
                 except Exception:
@@ -136,8 +178,8 @@ def apply_edits(mol, depth):
                     except Exception:
                         continue
                     if ps not in out and ps not in nxt:
-                        nxt[ps] = path + (name,)
-        out.update(nxt)
+                        nxt[ps] = (Descriptors.ExactMolWt(p), path + (name,))
+        out.update({k: v[1] for k, v in nxt.items()})
         frontier = nxt
     return out
 
@@ -156,6 +198,7 @@ def main():
     ap.add_argument("--end", type=int, default=0)
     ap.add_argument("--edits", default="v0", choices=["v0", "v1"])
     ap.add_argument("--max-products", type=int, default=20)
+    ap.add_argument("--no-prune", action="store_true", help="expand every edit (reference for the pruning check)")
     ap.add_argument("--sample", default="", help="comma-free file of molecule_ids to run on (overrides start/end)")
     a = ap.parse_args()
     global RXN, MAX_PRODUCTS
@@ -173,6 +216,9 @@ def main():
     print(f"library without the cell: {len(lib.spectra)} spectra, {len(lib.molecules)} molecules [{time.time()-t0:.0f}s]", flush=True)
     F, N = library_matrix(lib)
     print(f"binned library matrices [{time.time()-t0:.0f}s]", flush=True)
+    if not a.no_prune:
+        edit_deltas(lib.molecules.smiles.tolist())
+        print(f"edit mass deltas known for {len(DELTA)}/{len(RXN)} edits (pruning {'on' if len(DELTA) == len(RXN) else 'off'})", flush=True)
     spec_ik = lib.spectra.inchikey14.to_numpy()
     spec_mode = lib.spectra.ionization_mode.to_numpy()
     smi_of = dict(zip(lib.molecules.inchikey14, lib.molecules.smiles))
@@ -205,7 +251,7 @@ def main():
             pm = Chem.MolFromSmiles(smi_of[pr])
             if pm is None:
                 continue
-            prods = apply_edits(pm, a.depth)
+            prods = apply_edits(pm, a.depth, None if a.no_prune else mass, tol)
             prods[Chem.MolToSmiles(pm)] = ()
             for smi, path in prods.items():
                 m = Chem.MolFromSmiles(smi)
