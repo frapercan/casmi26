@@ -21,6 +21,9 @@ _A = pd.read_parquet(f"{D3}/answers.parquet")
 # [M+H]+ or [M-H]- spectrum (the pipeline's engine 2 does not cover molecules seen only as adducts)
 _Q = _Q[_Q.adduct.isin(set(_vis.adduct))]
 _Q = _Q[_Q.molecule_id.isin(set(_Q.molecule_id[_Q.adduct.isin(["[M+H]+", "[M-H]-"])]))]
+# engine 2 silently skips a molecule with no pool structure within 30 ppm (then cell 48 asserts); these three
+# have none (hybrid/c3_pool_diag_cell.py, casmi26-c3-pooldiag v2)
+_Q = _Q[~_Q.molecule_id.isin(["val3_0052", "val3_0109", "val3_0122"])]
 _A = _A[_A.molecule_id.isin(set(_Q.molecule_id))].reset_index(drop=True)
 _rng = np.random.default_rng(0)
 _mid = dict(zip(_A.molecule_id, [f"m_{x:06x}" for x in _rng.choice(16 ** 6, len(_A), replace=False)]))
