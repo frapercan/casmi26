@@ -119,6 +119,18 @@ with our separately trained model, at three blend weights:
   structures) shows it at once: −0.152 on class 1. Lesson borrowed from CAFA and now built into the gate:
   **a change must improve its target cell and must not degrade any other cell.**
 
+* **Class 3 (structures outside every database): edit-based generation is capped by analog proximity.**
+  We built a third cell: 484 natural-product-like molecules (RDKit NP score ≥ 1) removed from both the
+  library and all training data. Generating candidates by applying common biosynthetic edits (hydroxylation,
+  methylation, glycosylation, acylation, ...) to the nearest spectral analogs puts the true structure in the
+  candidate list for only **~0.30–0.38** of molecules. Adding 14 more edit types left recall unchanged
+  (13/40 → 13/40) with 50% more candidates. The misses explain why: their nearest top-30 analog has a median
+  Tanimoto of 0.55, only 15% have an analog ≥ 0.85, and 30% have none ≥ 0.5 even in the top 300.
+  Two practical notes: (a) hide class-3 molecules by the *official* InChIKey-14 (after tautomer
+  canonicalisation), otherwise ~7% leak back as tautomer/stereo aliases of library entries and inflate any
+  baseline; (b) ranking the generated candidates by latent-embedding similarity to the query was *worse*
+  than the naive generation order; scorers trained to predict spectrum ↔ structure directly were better.
+
 ## 6. What we are looking for
 
 We are a small research-minded team (protein function prediction / CAFA evaluation background, see PROTEA)
@@ -132,4 +144,4 @@ The merger deadline is **7 December**. Reply here or message us.
 
 ---
 
-<sub>Changelog · v0.3 (2026-11-04): one-cell-deployment negative result (§5). · v0.2 (2026-11-04): first honest-set results (§4). · v0.1 (2026-11-04): first draft.</sub>
+<sub>Changelog · v0.4 (2026-11-08): class-3 cell and edit-generation ceiling (§5). · v0.3 (2026-11-04): one-cell-deployment negative result (§5). · v0.2 (2026-11-04): first honest-set results (§4). · v0.1 (2026-11-04): first draft.</sub>
