@@ -46,6 +46,7 @@ def main():
     ap.add_argument("--dry", default="")
     ap.add_argument("--extra-src", action="append", default=[], help="extra kernel source (owner/slug)")
     ap.add_argument("--ext", type=int, default=0, help="honest eval: N external Enveda-180 molecules absent from train")
+    ap.add_argument("--val3", action="store_true", help="honest eval, class 3 (private dataset casmi26-class3-data)")
     a = ap.parse_args()
     nb = copy.deepcopy(json.load(open(a.upstream)))
     code = [c for c in nb["cells"] if c["cell_type"] == "code"]
@@ -69,7 +70,9 @@ def main():
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         tar.add(os.path.join(ROOT, "src"), arcname="src", filter=lambda t: None if "__pycache__" in t.name else t)
-    if a.ext:
+    if a.val3:
+        pre = open(os.path.join(ROOT, "hybrid", "val3_pre_cell.py")).read()
+    elif a.ext:
         pre = open(os.path.join(ROOT, "hybrid", "ext_pre_cell.py")).read().replace("__N_MOL__", str(a.ext))
     else:
         pre = open(os.path.join(ROOT, "hybrid", "val_pre_cell.py")).read().replace("__N_CLS__", repr({1: a.n1, 2: a.n2}))
@@ -89,7 +92,8 @@ def main():
         "datasetDataSources": ["sanpier/casmi-spectrum-model-v1", "dmitriigluzdov/casmi26-fold-safe-fpnet",
                                "dmitriigluzdov/casmi26-natural-product-knowledge-table", "dmitriigluzdov/casmi26-natural-product-panel-benchmark",
                                "dmitriigluzdov/casmi26-pubchem-popularity-prior", "dmitriigluzdov/casmi26-attributed-v4g-reproduction-assets",
-                               "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel"],
+                               "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel"]
+                              + (["xaxipirulazo/casmi26-class3-data"] if a.val3 else []),
         "kernelDataSources": ["bgunshui/casmi26-scorer-train-public", "xaxipirulazo/casmi26-train-v2", "xaxipirulazo/casmi26-train-v3"]
                              + (["xaxipirulazo/casmi26-e180"] if a.ext else []) + a.extra_src,
     })
