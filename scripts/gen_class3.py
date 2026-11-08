@@ -58,7 +58,26 @@ EDITS = [
     ("dehydration", "[CH1:1][C:2][OH1]>>[C:1]=[C:2]"),
     ("methoxy_to_methylenedioxy", "[c:1]([O][CH3])[c:2][OH1]>>[c:1]1[c:2]OCO1"),
 ]
+# v1 additions, from the miss diagnostic (formula gaps truth - nearest analog: O+1 at sp3 CH/CH3, CH2 on
+# aliphatic C, pentose / glucuronide / acyl sugars, and positional isomers of the same formula)
+EDITS_V1 = [
+    ("hydroxylation_tert", "[CH1;!R;!$(C=*);!$(C[O,N]):1]>>[C:1]O"),
+    ("hydroxylation_ringCH", "[CH1;R;!$(C=*);!$(C[O,N]):1]>>[C:1]O"),
+    ("hydroxylation_methyl", "[CH3;$(C[#6]):1]>>[CH2:1]O"),
+    ("C-methylation_aliph", "[CH2;!$(C[O,N]);!$(C=*):1]>>[CH1:1]C"),
+    ("pentosylation_O", "[c,C:1][OH1:2]>>[c,C:1][O:2]C1OCC(O)C(O)C1O"),
+    ("glucuronidation_O", "[c,C:1][OH1:2]>>[c,C:1][O:2]C1OC(C(=O)O)C(O)C(O)C1O"),
+    ("malonylation_O", "[C,c:1][OH1:2]>>[C,c:1][O:2]C(=O)CC(=O)O"),
+    ("coumaroylation_O", "[C:1][OH1:2]>>[C:1][O:2]C(=O)C=Cc1ccc(O)cc1"),
+    ("galloylation_O", "[C:1][OH1:2]>>[C:1][O:2]C(=O)c1cc(O)c(O)c(O)c1"),
+    ("dehydroxylation_arom", "[c:1][OH1]>>[cH1:1]"),
+    ("carboxyl_to_methylester", "[C:1](=[O:2])[OH1]>>[C:1](=[O:2])OC"),
+    ("lactone_hydrolysis", "[C;R:1](=[O:2])[O;R:3][C;R:4]>>[C:1](=[O:2])O.[O:3][C:4]"),
+    ("decarboxylation", "[#6:1][CX3](=O)[OH1]>>[#6:1]"),
+    ("N-oxidation", "[NX3;H0;!$(N-C=O);!$(N-a):1]>>[N+:1][O-]"),
+]
 RXN = [(n, AllChem.ReactionFromSmarts(s)) for n, s in EDITS]
+MAX_PRODUCTS = 20
 
 
 def binned(mz, it, prec, bins=1500, res=1.0):
@@ -99,10 +118,18 @@ def apply_edits(mol, depth):
                 continue
             for name, rxn in RXN:
                 try:
-                    prods = rxn.RunReactants((m,), maxProducts=20)
+                    prods = rxn.RunReactants((m,), maxProducts=MAX_PRODUCTS)
                 except Exception:
                     continue
-                for (p,) in prods:
+                for pp in prods:
+                    p = pp[0] if len(pp) == 1 else None
+                    if p is None:                      # ring-opening edits give 2 fragments of one molecule
+                        try:
+                            p = Chem.MolFromSmiles(".".join(Chem.MolToSmiles(x) for x in pp))
+                            if p is None or "." in Chem.MolToSmiles(p):
+                                continue
+                        except Exception:
+                            continue
                     try:
                         Chem.SanitizeMol(p)
                         ps = Chem.MolToSmiles(p)
@@ -127,7 +154,14 @@ def main():
     ap.add_argument("--nl-weight", type=float, default=0.5)
     ap.add_argument("--start", type=int, default=0, help="chunk of the cell's molecules (outputs get a _<start> suffix)")
     ap.add_argument("--end", type=int, default=0)
+    ap.add_argument("--edits", default="v0", choices=["v0", "v1"])
+    ap.add_argument("--max-products", type=int, default=20)
+    ap.add_argument("--sample", default="", help="comma-free file of molecule_ids to run on (overrides start/end)")
     a = ap.parse_args()
+    global RXN, MAX_PRODUCTS
+    MAX_PRODUCTS = a.max_products
+    if a.edits == "v1":
+        RXN = RXN + [(n, AllChem.ReactionFromSmarts(x)) for n, x in EDITS_V1]
     os.makedirs(a.out, exist_ok=True)
     t0 = time.time()
     A = pd.read_parquet(f"{a.cell}/answers.parquet")
@@ -149,6 +183,8 @@ def main():
     if a.end:
         mids = mids[a.start:a.end]
     sfx = f"_{a.start:04d}" if a.end else ""
+    if a.sample:
+        keep = set(open(a.sample).read().split()); mids = [m for m in A.molecule_id if m in keep]; sfx = "_sample"
     for k, mid in enumerate(mids):
         g = q[q.molecule_id == mid]
         truth = A.set_index("molecule_id").inchikey14[mid]
