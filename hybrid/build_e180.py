@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import build_val
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 API = "https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel"
-H = {"Authorization": "Bearer proxy"}
+H = {"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")}
 AUG = "/kaggle/working/augcomp"
 PRE = r'''# ── casmi26: competition folder = real test + (train ∪ Enveda-180 extra spectra) ──
 import glob, os

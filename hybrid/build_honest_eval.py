@@ -50,7 +50,7 @@ code = lambda s: {"cell_type": "code", "metadata": {}, "execution_count": None, 
 nb = {"cells": [md(MD[0]), md(MD[1]), code("!pip install -q rdkit 2>&1 | tail -1"), code(cell)],
       "metadata": {"kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"}},
       "nbformat": 4, "nbformat_minor": 5}
-r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"Authorization": "Bearer proxy"},
+r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")},
                   timeout=300, json={
     "slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": json.dumps(nb), "language": "python",
     "kernelType": "notebook", "isPrivate": not a.public, "enableGpu": False, "enableInternet": True,

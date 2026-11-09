@@ -130,7 +130,7 @@ print("DONE", flush=True)
 
 
 def call(method, body):
-    r = requests.post(API + method, json=body, headers={"Authorization": "Bearer proxy"}, timeout=120)
+    r = requests.post(API + method, json=body, headers={"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")}, timeout=120)
     if r.status_code >= 400:
         raise SystemExit(f"{method} -> {r.status_code}: {r.text[:500]}")
     return r
