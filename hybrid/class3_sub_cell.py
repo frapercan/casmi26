@@ -61,14 +61,19 @@ try:
     GEN = {}
     _mids = [m for m in _sub.molecule_id if m in QG]
     _gen_budget = 0.6 * TIME_BUDGET
+    STRAGGLER = 240               # seconds to wait for the next result before giving up on the slow tail
     with _mp.get_context("fork").Pool(max(1, os.cpu_count())) as _pool:
-        for k, (mid, smis) in enumerate(_pool.imap_unordered(_gen, _mids, chunksize=1)):
+        _it = _pool.imap_unordered(_gen, _mids, chunksize=1)
+        for k in range(len(_mids)):
+            try:
+                mid, smis = _it.next(timeout=max(1.0, min(STRAGGLER, _gen_budget - (time.time() - _t0))))
+            except _mp.TimeoutError:
+                print(f"  C3 generation stopped at {k}/{len(_mids)} (slow tail or budget) [{time.time() - _t0:.0f}s]", flush=True)
+                _pool.terminate(); break
             GEN[mid] = smis
             if (k + 1) % 50 == 0:
                 print(f"  C3 generated {k + 1}/{len(_mids)} [{time.time() - _t0:.0f}s]", flush=True)
-            if time.time() - _t0 > _gen_budget:
-                print(f"  C3 generation budget reached at {k + 1}/{len(_mids)}", flush=True)
-                _pool.terminate(); break
+    pd.to_pickle(GEN, f"{_W}/c3_generated.pkl")
     print(f"C3 generated for {len(GEN)} molecules, median {np.median([len(v) for v in GEN.values()]) if GEN else 0:.0f} "
           f"candidates [{time.time() - _t0:.0f}s]", flush=True)
 
@@ -120,7 +125,8 @@ try:
             _out.append(";".join(new[:max(len(lst), 25)])); _n_ins += 1
     _new = pd.DataFrame({"molecule_id": _sub.molecule_id, "smiles": _out})
     assert len(_new) == len(_sub) and (_new.molecule_id == _sub.molecule_id).all()
-    assert all(a.split(";")[:INS_POS - 1] == b.split(";")[:INS_POS - 1] for a, b in zip(_sub.smiles, _new.smiles))
+    _nb = lambda x: [y for y in x.split(";") if y.strip()]
+    assert all(_nb(b)[:len(_nb(a)[:INS_POS - 1])] == _nb(a)[:INS_POS - 1] for a, b in zip(_sub.smiles, _new.smiles))
     _new.to_csv(f"{_W}/submission.csv" if not DRY else f"{_W}/submission_c3.csv", index=False)
     print(f"C3 LAYER: inserted generated structures in {_n_ins}/{len(_sub)} lists at rank {INS_POS} "
           f"[{time.time() - _t0:.0f}s]", flush=True)
