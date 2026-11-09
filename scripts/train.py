@@ -29,7 +29,8 @@ from casmi.spectra import neutral_mass  # noqa: E402
 @torch.no_grad()
 def evaluate(model, st: SpectraStore, hold_ik: list[str], ppm: float, device, max_mols=None, sae=None):
     model.eval()
-    db = st.mols[st.mols.source == "db"]
+    # distractors disjoint from the training negatives when the table has them (scripts/build_mol_table.py)
+    db = st.mols[st.mols.source == ("dist" if (st.mols.source == "dist").any() else "db")]
     db_mass, db_rows = db.exact_mass.to_numpy(), db.index.to_numpy()
     o = np.argsort(db_mass)
     db_mass, db_rows = db_mass[o], db_rows[o]
