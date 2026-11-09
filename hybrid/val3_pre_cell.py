@@ -30,6 +30,11 @@ _mid = dict(zip(_A.molecule_id, [f"m_{x:06x}" for x in _rng.choice(16 ** 6, len(
 _Q["molecule_id"] = _Q.molecule_id.map(_mid)
 _Q["spectrum_id"] = [f"s_{x:08x}" for x in _rng.choice(16 ** 8, len(_Q), replace=False)]
 _Q = _Q.sort_values("molecule_id", kind="stable")
+# the hidden test's positive-mode m/z were corrected by -0.000548 Da (one electron, hosts' note); train and the
+# Zenodo release were not, so apply it here or every validation query sits ~+1.6 ppm off the hidden test
+_pos = _Q.ionization_mode == "positive"
+_Q.loc[_pos, "precursor_mz"] = _Q.loc[_pos, "precursor_mz"] - 0.000548
+_Q.loc[_pos, "ms2_mzs"] = _Q.loc[_pos, "ms2_mzs"].map(lambda m: (np.asarray(m, float) - 0.000548).tolist())
 _Q[list(_vis.columns)].astype(_vis.dtypes.to_dict()).to_parquet(f"{VC}/test.parquet", index=False)
 _A["val3_id"] = _A.molecule_id
 _A["molecule_id"] = _A.molecule_id.map(_mid)

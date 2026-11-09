@@ -17,7 +17,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casmi.data import SpectraStore  # noqa: E402
 from casmi.gpustore import GPUStore  # noqa: E402
-from casmi.valset import excluded_spectra, load_exclude  # noqa: E402
+from casmi.valset import excluded_spectra, load_exclude, load_exclude_all  # noqa: E402
 from casmi.jepa import JEPA  # noqa: E402
 
 ap = argparse.ArgumentParser()
@@ -31,13 +31,16 @@ ap.add_argument("--out", default="/home/user/work/runs/jepa")
 ap.add_argument("--no-gpu-data", action="store_true", help="collate on CPU instead of GPUStore")
 ap.add_argument("--compile", action="store_true")
 ap.add_argument("--val", default="", help="validation dir from make_valset.py (its spectra are hidden)")
+ap.add_argument("--query", default="mz", choices=["mz", "none"], help="mz = v2 masked queries with m/z; none = v1 (buggy)")
+ap.add_argument("--ctx-free", action="store_true", help="shortcut control: predictor sees queries but no context")
+ap.add_argument("--seed", type=int, default=0)
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 dev = "cuda" if torch.cuda.is_available() else "cpu"
-torch.manual_seed(0)
+torch.manual_seed(a.seed)
 
 spec_cols = pd.read_parquet(f"{a.work}/lib/spectra.parquet", columns=["ingest_lib", "inchikey14"])
-val_ex = excluded_spectra(spec_cols, load_exclude(a.val))
+val_ex = excluded_spectra(spec_cols, load_exclude(a.val), load_exclude_all(a.val))
 print(f"validation set {a.val or '-'}: {val_ex.sum()} spectra hidden from training", flush=True)
 st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb", exclude=val_ex)
 hold = set(pd.read_parquet(f"{a.work}/holdout.parquet").inchikey14)
@@ -45,7 +48,7 @@ hold |= set(st.spec.loc[st.spec.ingest_lib == "enveda-np-examples", "inchikey14"
 pool = np.flatnonzero(~st.spec.inchikey14.isin(hold).to_numpy() & st.spec.mol_row.notna().to_numpy())
 print(f"pretraining spectra {len(pool)}  device {dev}", flush=True)
 
-m = JEPA(d=a.d, layers=a.layers).to(dev)
+m = JEPA(d=a.d, layers=a.layers, query=a.query, ctx_free=a.ctx_free).to(dev)
 opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.04)
 sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=max(0.05, 3 / a.steps))
 rng = np.random.default_rng(0)
@@ -53,7 +56,7 @@ gpu_data = dev == "cuda" and not a.no_gpu_data
 if gpu_data:
     gs = GPUStore(st, dev)
     gpool = torch.as_tensor(pool, device=dev)
-    gen = torch.Generator(device=dev); gen.manual_seed(0)
+    gen = torch.Generator(device=dev); gen.manual_seed(a.seed)
     next_batch = lambda: gs.collate(gs.sample_spectra(a.batch, gen, gpool))
 else:  # with replacement: O(batch), not a 1.9M-element permutation per step
     next_batch = lambda: st.collate(pool[rng.integers(len(pool), size=a.batch)], device=dev)
