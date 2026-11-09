@@ -13,6 +13,7 @@ ap.add_argument("--ins-k", type=int, default=5)
 ap.add_argument("--budget", type=int, default=7200)
 ap.add_argument("--ckpt", default="casmi26-train-wm7c3")
 ap.add_argument("--dry", default="", help="write the notebook here instead of pushing")
+ap.add_argument("--like", default="", help="owner/slug of the public kernel the upstream notebook came from: copy its data sources")
 a = ap.parse_args()
 buf = io.BytesIO()
 with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -29,14 +30,22 @@ for c in nb["cells"]:
         c["outputs"], c["execution_count"] = [], None
 if a.dry:
     json.dump(nb, open(a.dry, "w")); print("wrote", a.dry, len(nb["cells"]), "cells"); raise SystemExit
+DS = ["sanpier/casmi-spectrum-model-v1", "dmitriigluzdov/casmi26-fold-safe-fpnet",
+      "dmitriigluzdov/casmi26-natural-product-knowledge-table", "dmitriigluzdov/casmi26-natural-product-panel-benchmark",
+      "dmitriigluzdov/casmi26-pubchem-popularity-prior", "dmitriigluzdov/casmi26-attributed-v4g-reproduction-assets",
+      "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel"]
+KS = ["bgunshui/casmi26-scorer-train-public"]
+if a.like:
+    u, k = a.like.split("/")
+    m = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernel", headers={"Authorization": "Bearer proxy"},
+                      timeout=120, json={"userName": u, "kernelSlug": k}).json()["metadata"]
+    DS = [d for d in m.get("datasetDataSources") or [] if d]; KS = [d for d in m.get("kernelDataSources") or [] if d]
+    print("sources from", a.like, DS, KS)
 r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"Authorization": "Bearer proxy"}, timeout=180, json={
     "slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": json.dumps(nb), "language": "python",
     "kernelType": "notebook", "isPrivate": True, "enableGpu": True, "enableInternet": False,
     "competitionDataSources": ["enveda-CASMI26-molecule-id-mass-spectra"],
-    "datasetDataSources": ["sanpier/casmi-spectrum-model-v1", "dmitriigluzdov/casmi26-fold-safe-fpnet",
-                           "dmitriigluzdov/casmi26-natural-product-knowledge-table", "dmitriigluzdov/casmi26-natural-product-panel-benchmark",
-                           "dmitriigluzdov/casmi26-pubchem-popularity-prior", "dmitriigluzdov/casmi26-attributed-v4g-reproduction-assets",
-                           "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel", "xaxipirulazo/casmi26-speclib"],
-    "kernelDataSources": ["bgunshui/casmi26-scorer-train-public", "xaxipirulazo/casmi26-train-v2", f"xaxipirulazo/{a.ckpt}"],
+    "datasetDataSources": DS + ["xaxipirulazo/casmi26-speclib"],
+    "kernelDataSources": KS + ["xaxipirulazo/casmi26-train-v2", f"xaxipirulazo/{a.ckpt}"],
 })
 print(r.status_code, r.text[:400])

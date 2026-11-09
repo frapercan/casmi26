@@ -13,8 +13,15 @@ TIME_BUDGET = __BUDGET__      # seconds for the whole layer; molecules not reach
 import base64, glob, io, os, sys, tarfile, time, traceback
 import numpy as np, pandas as pd
 _t0 = time.time()
+try:   # never push the session past Kaggle's 9 h limit: the kernel process is as old as the session
+    _age = float(open("/proc/uptime").read().split()[0]) - int(open("/proc/self/stat").read().rsplit(")", 1)[1].split()[19]) / os.sysconf("SC_CLK_TCK")
+except Exception:
+    _age = 0.0
+TIME_BUDGET = min(TIME_BUDGET, 8.4 * 3600 - _age)
+print(f"C3 session age {_age / 3600:.2f} h -> layer budget {TIME_BUDGET / 60:.0f} min", flush=True)
 _W = "/kaggle/working"
 try:
+    assert TIME_BUDGET > 900, "less than 15 min left in the session"
     _code = f"{_W}/casmi26_c3"
     tarfile.open(fileobj=io.BytesIO(base64.b64decode("__PAYLOAD__"))).extractall(_code)
     sys.path.insert(0, _code + "/src")
