@@ -908,3 +908,40 @@ Una variable por submission. Los probes de calibración se diseñan como filas d
 9. *P_gen.* No se elimina del todo, aunque un revisor lo considera poco informativo, porque mide directamente p3·μ3(gen), que es lo que necesita una decisión de inserción de clase 3. Queda en una sola variante y condicionado al estudio de identificabilidad.
 
 **Rechazado.** Ninguna objeción se rechaza en su totalidad.
+
+---
+
+## Anexo A — Resultados del 2026-11-09 (ejecución local, RTX 3060)
+
+**J1 (listas del pipeline, celda c3, 401 moléculas con la verdad en el top-25).** A ciegas, con los espectros de otra molécula, el modelo saca ≈ azar (nce 0.139 frente a 0.154). Canonicalizar todos los candidatos solo cuesta ≈0.025. En este escenario la verdad ya viene en formato canónico en 376/401 casos. `scripts/audit_j1.py`.
+
+**J1b (escenario de la evaluación interna: verdad en formato train frente a ~200 candidatos PubChem de la misma masa, 418 moléculas, azar 0.030).**
+
+| MRR | fp | fwd | jepa | nce | sae |
+|---|---|---|---|---|---|
+| crudo | 0.395 | 0.749 | 0.678 | 0.753 | 0.709 |
+| todo canónico | 0.395 | 0.667 | 0.452 | 0.658 | 0.481 |
+| a ciegas, crudo | 0.063 | 0.073 | 0.162 | 0.083 | 0.163 |
+
+Atajo de formato confirmado: las cabezas jepa y sae son en gran parte atajo, y nce/fwd tienen ~0.09 inflado. A esto se suma una segunda inflación: los negativos duros de entrenamiento eran exactamente los distractores de evaluación (solo había filas DB alrededor de las masas del holdout). `scripts/audit_j1b.py`.
+
+**J0.** Bug de JEPA v1 confirmado: con el modelo en eval, la dispersión de las predicciones enmascaradas dentro de un espectro es 0.0. v2 (queries con m/z, contexto ciego a los picos ocultos, target en eval, control sin contexto) da 0.32. `tests/test_jepa.py`.
+
+**J2.** `scripts/build_mol_table.py` genera `work/emb_v3`:
+- 267,831 moléculas de train, 2.04 M negativos (58 % de misma fórmula) para todas ellas y 201,295 distractores de evaluación disjuntos por hash.
+- Todo canónico sin estereo.
+- 2,234 estructuras de validación excluidas.
+
+**Meta v1.** `scripts/meta/build_molecules.py` genera `work/meta/v1/molecules.parquet` (267,831 × 71). Clases de novedad sobre las estructuras de train:
+
+| Clase | Estructuras |
+|---|---|
+| 1 | 90,411 |
+| 2 | 172,692 |
+| 3 | 4,728 |
+
+**Hallazgo de dominio.** Enveda-180, es decir, todo nuestro timsTOF de train y la base de todas las celdas de validación usadas hasta hoy, es química de screening tipo fármaco: 0 % en COCONUT, NP-score −1.5, 36 % halogenados, 2.5 % con PubMed y masas entre 235 y 499 Da. `enveda-np-examples` es NP: 99.6 % en COCONUT, NP-score +1.42, 96 % con PubMed, masas de 133 a 1109 Da con mediana 354. Esto encaja con la descripción del test oculto (157–1159 Da, mediana 348, extractos biológicos).
+
+Para celdas parecidas al test hay 23,415 estructuras NP (COCONUT, 157–1159 Da, una sola especie neutra) con espectros públicos en train, 15,276 de ellas con PubMed. Por librería: gnps 15.3k, riken 11.1k, mona 8.5k, pluskal 7.7k, msdial 6.5k, massbank 4.9k. De ellas, 295 son timsTOF (244 de np-examples).
+
+Consecuencia: las celdas de clase 2 y 3 del plan deben construirse sobre estas estructuras NP, ocultando todos sus espectros de la librería (c2_sim) y, en clase 3, también de las DB (c3_del), con estratificación por masa como el test. Las celdas basadas en Enveda-180 pasan a ser un estrato de control fuera de dominio.
