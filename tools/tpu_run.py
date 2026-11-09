@@ -51,7 +51,7 @@ with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         tar.add(os.path.join(ROOT, sub), arcname=sub, filter=lambda t: None if "__pycache__" in t.name else t)
 reuse = [r for r in a.reuse.split(",") if r]
 text = TEMPLATE.format(payload=base64.b64encode(buf.getvalue()).decode(), reuse=reuse, args=shlex.join(a.train_args))
-r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")},
+r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"User-Agent": "casmi26-tools", "Authorization": "Bearer " + (os.environ.get("KAGGLE_API_TOKEN") or next((open(p).read().strip() for p in [os.path.expanduser("~/.kaggle/access_token")] if os.path.exists(p)), "proxy"))},
                   timeout=300, json={"slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": text, "language": "python",
                   "kernelType": "script", "isPrivate": True, "enableGpu": False, "enableTpu": True, "machineShape": a.shape,
                   "enableInternet": True, "competitionDataSources": ["enveda-CASMI26-molecule-id-mass-spectra"],

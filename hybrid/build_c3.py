@@ -37,11 +37,11 @@ DS = ["sanpier/casmi-spectrum-model-v1", "dmitriigluzdov/casmi26-fold-safe-fpnet
 KS = ["bgunshui/casmi26-scorer-train-public"]
 if a.like:
     u, k = a.like.split("/")
-    m = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernel", headers={"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")},
+    m = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernel", headers={"User-Agent": "casmi26-tools", "Authorization": "Bearer " + (os.environ.get("KAGGLE_API_TOKEN") or next((open(p).read().strip() for p in [os.path.expanduser("~/.kaggle/access_token")] if os.path.exists(p)), "proxy"))},
                       timeout=120, json={"userName": u, "kernelSlug": k}).json()["metadata"]
     DS = [d for d in m.get("datasetDataSources") or [] if d]; KS = [d for d in m.get("kernelDataSources") or [] if d]
     print("sources from", a.like, DS, KS)
-r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")}, timeout=180, json={
+r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"User-Agent": "casmi26-tools", "Authorization": "Bearer " + (os.environ.get("KAGGLE_API_TOKEN") or next((open(p).read().strip() for p in [os.path.expanduser("~/.kaggle/access_token")] if os.path.exists(p)), "proxy"))}, timeout=180, json={
     "slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": json.dumps(nb), "language": "python",
     "kernelType": "notebook", "isPrivate": True, "enableGpu": True, "enableInternet": False,
     "competitionDataSources": ["enveda-CASMI26-molecule-id-mass-spectra"],

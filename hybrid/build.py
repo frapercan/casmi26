@@ -30,7 +30,7 @@ nb["cells"].append({"cell_type": "code", "metadata": {}, "execution_count": None
 for c in nb["cells"]:
     if c["cell_type"] == "code":
         c["outputs"], c["execution_count"] = [], None
-r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")}, timeout=180, json={
+r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"User-Agent": "casmi26-tools", "Authorization": "Bearer " + (os.environ.get("KAGGLE_API_TOKEN") or next((open(p).read().strip() for p in [os.path.expanduser("~/.kaggle/access_token")] if os.path.exists(p)), "proxy"))}, timeout=180, json={
     "slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": json.dumps(nb), "language": "python",
     "kernelType": "notebook", "isPrivate": True, "enableGpu": True, "enableInternet": False,
     "competitionDataSources": ["enveda-CASMI26-molecule-id-mass-spectra"],

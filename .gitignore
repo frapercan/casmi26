@@ -7,3 +7,5 @@ work/
 *.csv
 configs/weights.json
 splits/val3/
+.venv/
+nb/

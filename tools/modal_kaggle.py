@@ -20,7 +20,7 @@ import requests
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 API = "https://api.kaggle.com/v1/"
-H = {"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")}
+H = {"User-Agent": "casmi26-tools", "Authorization": "Bearer " + (os.environ.get("KAGGLE_API_TOKEN") or next((open(p).read().strip() for p in [os.path.expanduser("~/.kaggle/access_token")] if os.path.exists(p)), "proxy"))}
 
 CELL = r'''
 import base64, glob, io, os, subprocess, sys, tarfile, time

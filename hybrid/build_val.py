@@ -85,7 +85,7 @@ def main():
             c["outputs"], c["execution_count"] = [], None
     if a.dry:
         json.dump(nb, open(a.dry, "w")); print("wrote", a.dry); return
-    r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")}, timeout=300, json={
+    r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers={"User-Agent": "casmi26-tools", "Authorization": "Bearer " + (os.environ.get("KAGGLE_API_TOKEN") or next((open(p).read().strip() for p in [os.path.expanduser("~/.kaggle/access_token")] if os.path.exists(p)), "proxy"))}, timeout=300, json={
         "slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": json.dumps(nb), "language": "python",
         "kernelType": "notebook", "isPrivate": True, "enableGpu": True, "enableInternet": False,
         "competitionDataSources": ["enveda-CASMI26-molecule-id-mass-spectra"],

@@ -10,6 +10,7 @@ requests carry "Bearer proxy", which only works behind the cloud-session proxy t
   python tools/kaggle_api.py submit <slug> <version> <description>
   python tools/kaggle_api.py lb [team-substring]       # public leaderboard: our rank and the medal lines
   python tools/kaggle_api.py upload <dataset-slug> <file> [<file> ...]   # create/version a PRIVATE dataset
+  python tools/kaggle_api.py pull <owner/slug> <out.ipynb> [--drop-last]  # kernel source (+ its data sources)
 """
 import json, os, re, sys, time
 import requests
@@ -17,7 +18,7 @@ import requests
 USER = os.environ.get("KAGGLE_USER", "xaxipirulazo")
 COMP = "enveda-CASMI26-molecule-id-mass-spectra"
 API = "https://api.kaggle.com/v1/"
-H = {"Authorization": "Bearer " + os.environ.get("KAGGLE_API_TOKEN", "proxy")}
+H = {"User-Agent": "casmi26-tools", "Authorization": "Bearer " + (os.environ.get("KAGGLE_API_TOKEN") or next((open(p).read().strip() for p in [os.path.expanduser("~/.kaggle/access_token")] if os.path.exists(p)), "proxy"))}
 
 
 def post(method, body, timeout=120):
@@ -90,6 +91,17 @@ def main(cmd, *a):
             r = post("datasets.DatasetApiService/CreateDatasetVersion", {"ownerSlug": USER, "datasetSlug": slug,
                      "body": {"versionNotes": "update", "files": toks, "deleteOldVersions": True}})
             print("version", r.status_code, r.text[:300])
+    elif cmd == "pull":
+        u, k = a[0].split("/")
+        j = post("kernels.KernelsApiService/GetKernel", {"userName": u, "kernelSlug": k}).json()
+        nb = json.loads(j["blob"]["source"])
+        if "--drop-last" in a:
+            nb["cells"] = nb["cells"][:-1]
+        json.dump(nb, open(a[1], "w"))
+        m = j.get("metadata", {})
+        print(f"wrote {a[1]} ({len(nb['cells'])} cells)")
+        for key in ("competitionDataSources", "datasetDataSources", "kernelDataSources"):
+            print(" ", key, [d for d in m.get(key) or [] if d])
     else:
         print(__doc__)
 

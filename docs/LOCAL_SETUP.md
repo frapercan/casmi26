@@ -31,8 +31,9 @@ Create an API token on Kaggle (Settings → API) and export it in your shell pro
 export KAGGLE_API_TOKEN=...   # never commit it, never paste it into a chat
 ```
 
-Every script that calls the Kaggle API reads `KAGGLE_API_TOKEN`. Without it they fall back to the cloud proxy.
-The official `kaggle` CLI also needs credentials; see its docs.
+Every script that calls the Kaggle API reads `KAGGLE_API_TOKEN`, then `~/.kaggle/access_token` (the file the
+`kaggle` CLI uses), then falls back to the cloud proxy. The scripts send a fixed User-Agent: the API answers
+404 to the default `python-requests/2.34.x` agent.
 
 ## 4. Data: stays on this machine
 
@@ -42,9 +43,13 @@ The competition data is CC BY-NC. It must not be committed or redistributed. `.g
 Mirror Kaggle's `/kaggle` layout so the frozen notebooks run unmodified. The notebooks find most inputs by
 recursive search under `/kaggle/input`, so each source just needs its own folder named after its slug.
 
+Keep the data in your home and link it as `/kaggle` (the one step that needs sudo):
+
 ```bash
-sudo mkdir -p /kaggle/input /kaggle/working && sudo chown -R "$USER" /kaggle
+mkdir -p ~/casmi/kaggle/input ~/casmi/kaggle/working && sudo ln -sfn ~/casmi/kaggle /kaggle
 ```
+
+`tools/fetch_inputs.sh` downloads everything below (idempotent; `KROOT` sets the target root).
 
 ```bash
 C=enveda-CASMI26-molecule-id-mass-spectra
