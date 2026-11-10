@@ -1,0 +1,55 @@
+{
+ "id": "P001",
+ "title": "B0-repro: our model (w4base_s0) in the withdrawn second scorer's slot of the public 0.480 notebook",
+ "submission_ref": 58182716,
+ "kernel": "xaxipirulazo/casmi26-b0repro v1",
+ "dataset": "xaxipirulazo/casmi26-ours-bundle",
+ "checkpoint": "w4base_s0",
+ "bundle_tar_sha256": "9ac626f8cd61d42ee1d97392e9f3e9f260a026c8d42c884073b6c2e6046c43af",
+ "code_commit": "3287ee6",
+ "submitted_at": "2026-11-10T03:19:00+01:00",
+ "commit_log_checks": {
+  "bundle found": true,
+  "plm check": true,
+  "ensemble built": true,
+  "rank correlation": true,
+  "second scorer ours": true,
+  "submission ready": true,
+  "no scorer failure": true
+ },
+ "rules": {
+  "metric": "public LB MRR@25, read as the 3-decimal score Kaggle displays",
+  "references": {
+   "public_only": 0.479,
+   "with_withdrawn_second_scorer": 0.48,
+   "source": "docs/research_plan.md Annex B (the 0.480 notebook's own tables)",
+   "run_to_run_noise": 0.002,
+   "one_public_molecule": 0.008
+  },
+  "bands": [
+   {
+    "name": "adds",
+    "test": "score>=0.482",
+    "consequence": "our model stays the second scorer in every later probe; the next probe changes one thing only (an exploration winner or the z-weight, the latter tuned offline first)"
+   },
+   {
+    "name": "tie",
+    "test": "0.477<=score<=0.481",
+    "consequence": "a reproducible ~0.48 without the withdrawn scorer: B0-repro becomes the base of record; the next probe only when an offline exploration clears its own rule"
+   },
+   {
+    "name": "subtracts",
+    "test": "score<=0.476",
+    "consequence": "the base of record falls back to the public-only pipeline; no further probe with our model before diagnosing (per-class replay on eval-c3, rank-1 moves) why an offline +0.136 model loses in the pipeline"
+   }
+  ],
+  "limitations": [
+   "~125 public molecules: one molecule moving rank 2 -> 1 is worth ~0.004-0.008",
+   "the public split is 31 % of the test; the private score is what counts"
+  ]
+ },
+ "rules_sha256": "3d2be9fc8bfac489194cb47c8938d4b3a7359d5eafc7f83a230bf9e20a69fc16",
+ "frozen_at": "2026-11-10T04:55:01+01:00",
+ "frozen_before_score": true,
+ "state": "frozen"
+}
