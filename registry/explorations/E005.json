@@ -1,0 +1,126 @@
+{
+ "id": "E005",
+ "title": "World model conditioned on the instrument (timsTOF vs Orbitrap/QTOF)",
+ "kind": "one_axis",
+ "axis": "instrument class (tims, orbitrap, qtof, trap, other) as a condition of the spectrum encoder (added to the precursor token) and of the forward world model (FiLM); code on branch e005-inst (d3a21ed); everything else as A0 (work/w4, --val work/cells, wm-canon recipe, 31k steps, seed 0)",
+ "question": "Does telling the model which instrument measured a spectrum (and asking the world model to imagine each candidate on that instrument) improve ranking of natural products measured on timsTOF, the test instrument?",
+ "hypothesis": "A1 beats A0 on np_tims (primary) without losing on np_c2.",
+ "declared_risk": "every library timsTOF spectrum is Enveda-180 (drug-like screening chemistry); the timsTOF condition may carry a drug-like prior that hurts natural products. A2 (A1's weights, every query presented as orbitrap) measures it.",
+ "arms": {
+  "A0": "w4base_s0",
+  "A1": "w4inst_s0",
+  "A2": "w4inst_s0_asorbi"
+ },
+ "arm_weights": {
+  "A0": "w4base_s0",
+  "A1": "w4inst_s0",
+  "A2": "w4inst_s0"
+ },
+ "candidate_arms": [
+  "A1",
+  "A2"
+ ],
+ "cells": [
+  "np_tims",
+  "np_c2"
+ ],
+ "rules": {
+  "primary": {
+   "cell": "np_tims",
+   "metric": "mass:nf+0.25doc"
+  },
+  "metrics": [
+   "mass:nf+0.25doc",
+   "mass:nf"
+  ],
+  "contrasts": [
+   [
+    "A1",
+    "A0"
+   ],
+   [
+    "A2",
+    "A1"
+   ],
+   [
+    "A2",
+    "A0"
+   ]
+  ],
+  "bootstrap": {
+   "resamples": 4000,
+   "seed": 0,
+   "paired_by": "mol_id",
+   "ci": 0.95
+  },
+  "verdict": {
+   "inst_helps_tims": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_tims",
+     "metric": "mass:nf+0.25doc",
+     "test": "ci_low>0"
+    },
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:nf+0.25doc",
+     "test": "mean>-0.01"
+    }
+   ],
+   "inst_hurts_tims": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_tims",
+     "metric": "mass:nf+0.25doc",
+     "test": "ci_high<0"
+    }
+   ],
+   "tims_condition_harmful": [
+    {
+     "contrast": [
+      "A2",
+      "A1"
+     ],
+     "cell": "np_tims",
+     "metric": "mass:nf+0.25doc",
+     "test": "ci_low>0"
+    }
+   ],
+   "model_only_helps_tims": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_tims",
+     "metric": "mass:nf",
+     "test": "ci_low>0"
+    }
+   ]
+  },
+  "leak_policy": "every arm leak-free on every cell, else void",
+  "consequence": "inst_helps_tims and not tims_condition_harmful -> instrument-conditioned model becomes the bundle candidate (the pipeline's queries carry instrument_type); tims_condition_harmful -> deploy with the orbitrap condition or drop the axis",
+  "limitations": [
+   "one seed per arm",
+   "np_tims has 245 molecules (95% CI half-width ~0.03 on the fused metric)"
+  ]
+ },
+ "frozen_at": "2026-11-10T02:47:23+01:00",
+ "commit": "d50a530",
+ "rules_sha256": "94bd11ce91f2bb9f3b5bf416e0c8f9dda6a23167d092de164e65bc6753c0ae92",
+ "arms_with_results_at_freeze": [
+  "A0"
+ ],
+ "post_hoc": false,
+ "state": "frozen"
+}
