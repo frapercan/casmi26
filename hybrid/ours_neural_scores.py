@@ -10,6 +10,8 @@ within each molecule's list, the combination that ranks best alone on the natura
 Candidates are canonicalised (RDKit, stereo-free) before embedding: the model was trained on that format only.
 Positive-mode m/z of the hidden test carry the electron-mass correction that the training libraries lack;
 ours_config.json "electron_shift_pos" (+0.000548 Da) puts the queries back on the training convention.
+An instrument-conditioned checkpoint (E005) gets each query's instrument class from its instrument_type (the hidden
+test is all timsTOF), or the class named by ours_config.json "inst_override".
 """
 from __future__ import annotations
 
@@ -19,6 +21,24 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+
+
+INST_CLASSES = ["tims", "orbitrap", "qtof", "trap", "other"]   # src/casmi/data.py on the E005 branch
+
+
+def inst_class(s):
+    """Same rules as scripts/meta/lib_instrument.py, which labelled the training library."""
+    import re
+    s = str(s).lower()
+    if "tims" in s:
+        return "tims"
+    if re.search(r"orbitrap|q-?ft|itft|hybrid ft|\bft\b|hcd|q exactive|exploris|fusion|lumos", s):
+        return "orbitrap"
+    if re.search(r"q-?tof|\btof\b|tof|maxis|impact|synapt|xevo|tripletof", s):
+        return "qtof"
+    if re.search(r"trap|\bit\b|qqq|\bqq\b|qit|lc-esi-it|triple quad", s):
+        return "trap"
+    return "other"
 
 
 def canon(s):
@@ -54,6 +74,13 @@ def score(bundle, checkpoint, evidence, queries, output, device="cuda"):
         Q.loc[pos, "ms2_mzs"] = Q.loc[pos, "ms2_mzs"].map(lambda m: (np.asarray(m, float) + shift).tolist())
     q = prep_query(Q)
     q["ce_mean"] = Q.collision_energy_ev.map(lambda v: float(np.mean(v)) if v is not None and len(v) else np.nan).to_numpy()
+    n_inst = int(getattr(model, "n_inst", 0) or 0)
+    if n_inst:
+        ov = cfg.get("inst_override")
+        cls = [ov] * len(Q) if ov else [inst_class(v) for v in Q.instrument_type]
+        q["inst_idx"] = [INST_CLASSES.index(c) for c in cls]
+        print(f"ours: instrument condition on ({'override ' + ov if ov else 'from instrument_type'}): "
+              f"{pd.Series(cls).value_counts().to_dict()}", flush=True)
     QG = dict(tuple(q.groupby("molecule_id", sort=False)))
 
     uniq = list(dict.fromkeys(E.smiles.astype(str)))
@@ -72,8 +99,11 @@ def score(bundle, checkpoint, evidence, queries, output, device="cuda"):
         g["n_spectra"], g["n_adducts"], g["neural_ok"] = 0, 0, False
         if mid in QG and len(g):
             idx = np.array([row[s] for s in g.smiles.astype(str)])
+            b = query_batch(QG[mid], dev)
+            if n_inst:
+                b["inst"] = torch.as_tensor(QG[mid].inst_idx.to_numpy(), dtype=torch.long, device=dev)
             with torch.no_grad():
-                sc = model_scores(model, None, query_batch(QG[mid], dev), torch.as_tensor(plm[idx], device=dev),
+                sc = model_scores(model, None, b, torch.as_tensor(plm[idx], device=dev),
                                   torch.as_tensor(fps[idx], device=dev))
             g["neural_cos"], g["neural_fp"] = sc["nce"], sc["fp"]
             g["neural_score"] = (sc["nce"] + sc["fwd"]) / 2 if "fwd" in sc else sc["nce"]

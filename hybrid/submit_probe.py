@@ -21,6 +21,9 @@ ap.add_argument("--plm-mean", default="work/emb_v4/plm_mean.npy")
 ap.add_argument("--dataset", default="casmi26-ours-bundle")
 ap.add_argument("--slug", default="casmi26-b0repro")
 ap.add_argument("--submit", action="store_true")
+ap.add_argument("--src", default="", help="casmi package directory for the bundle (an exploration's worktree src)")
+ap.add_argument("--inst-override", default="")
+ap.add_argument("--expect", action="append", default=[], help="extra commit-log line the run must print (regex)")
 a = ap.parse_args()
 PY = sys.executable
 
@@ -36,7 +39,8 @@ def stamp(msg):
     print(time.strftime("%H:%M:%S"), msg, flush=True)
 
 
-run([PY, "hybrid/build_ours_bundle.py", "--ckpt", a.ckpt, "--plm-mean", a.plm_mean, "--out", "work/bundle_ours", "--tar", "work/bundle_ours.tar"])
+run([PY, "hybrid/build_ours_bundle.py", "--ckpt", a.ckpt, "--plm-mean", a.plm_mean, "--out", "work/bundle_ours", "--tar", "work/bundle_ours.tar"]
+    + (["--src", a.src] if a.src else []) + (["--inst-override", a.inst_override] if a.inst_override else []))
 out = run([PY, "tools/kaggle_api.py", "upload", a.dataset, "work/bundle_ours.tar"])
 assert re.search(r"(create|version) 200", out) and "put work/bundle_ours.tar 200" in out, "dataset upload failed"
 for _ in range(30):   # wait for Kaggle to process the dataset version
@@ -74,6 +78,8 @@ checks = {
     "submission ready": "SUBMISSION READY" in log,
     "no scorer failure": "Our scorer failed" not in log,
 }
+for pat in a.expect:
+    checks[f"expect {pat}"] = bool(re.search(pat, log))
 stamp(json.dumps(checks))
 if not all(checks.values()):
     sys.exit("checks failed: not submitting")

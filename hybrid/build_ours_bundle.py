@@ -13,13 +13,18 @@ ap.add_argument("--plm-mean", required=True)
 ap.add_argument("--out", default="work/bundle_ours")
 ap.add_argument("--electron-shift-pos", type=float, default=0.000548)
 ap.add_argument("--tar", default="", help="also pack the bundle into this uncompressed tar (one file to upload)")
+ap.add_argument("--src", default="", help="directory holding the casmi package to bundle (default: this repo's src), "
+                "e.g. an exploration's worktree whose checkpoint needs its code")
+ap.add_argument("--inst-override", default="", help="instrument class every query is scored as (instrument-conditioned "
+                "checkpoints only; default: each query's own instrument_type)")
 a = ap.parse_args()
 root = os.path.join(os.path.dirname(__file__), "..")
-sys.path.insert(0, os.path.join(root, "src"))
+SRC = os.path.abspath(a.src or os.path.join(root, "src"))
+sys.path.insert(0, SRC)
 if os.path.exists(a.out):
     shutil.rmtree(a.out)
 os.makedirs(a.out)
-shutil.copytree(os.path.join(root, "src", "casmi"), os.path.join(a.out, "src", "casmi"),
+shutil.copytree(os.path.join(SRC, "casmi"), os.path.join(a.out, "src", "casmi"),
                 ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 shutil.copy2(a.ckpt, os.path.join(a.out, "ours.pt"))
 shutil.copy2(a.plm_mean, os.path.join(a.out, "plm_mean.npy"))
@@ -48,8 +53,11 @@ CHECK = ["CCO", "c1ccccc1O", "CC(=O)OC1=CC=CC=C1C(=O)O", "OC1C(O)C(O)C(CO)OC1O"]
 pe = PLMEmbedder(os.path.join(a.out, "plm"), device="cpu", mean=np.load(a.plm_mean))
 np.save(os.path.join(a.out, "plm_check.npy"), pe.embed(CHECK).astype(np.float32))
 json.dump(CHECK, open(os.path.join(a.out, "plm_check.json"), "w"))
-json.dump({"checkpoint": "ours.pt", "electron_shift_pos": a.electron_shift_pos, "source_ckpt": a.ckpt},
-          open(os.path.join(a.out, "ours_config.json"), "w"), indent=1)
+cfg = {"checkpoint": "ours.pt", "electron_shift_pos": a.electron_shift_pos, "source_ckpt": a.ckpt,
+       "src": os.path.relpath(SRC, os.path.abspath(root))}
+if a.inst_override:
+    cfg["inst_override"] = a.inst_override
+json.dump(cfg, open(os.path.join(a.out, "ours_config.json"), "w"), indent=1)
 print("bundle", a.out, sorted(os.listdir(a.out)))
 if a.tar:
     import tarfile

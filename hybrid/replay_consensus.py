@@ -47,7 +47,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", default="/kaggle/input/casmi26-eval-c3")
     ap.add_argument("--ours", action="append", default=[], help="NAME=path of a neural feature file (our scorer)")
+    ap.add_argument("--w-ours", default="0.5", help="comma list of z-weights of the second scorer (0.5 = the 480 notebook)")
     a = ap.parse_args()
+    W_OURS = [float(x) for x in a.w_ours.split(",")]
     from casmi.metric import ik14
     ans = pd.read_parquet(f"{a.run}/val_answers.parquet")
     truth = {m: ik14(s) for m, s in zip(ans.molecule_id, ans.smiles)}
@@ -60,8 +62,9 @@ def main():
         scorers[name] = pd.read_parquet(path).set_index(key).reindex(P.index)
     neural = {"public": (P.neural_score.fillna(0), P.neural_ok.astype(bool))}
     for name, S in scorers.items():
-        neural[f"0.5pub+0.5{name}"] = (0.5 * z(P.neural_score.fillna(0)) + 0.5 * z(S.neural_score.fillna(0)),
-                                       P.neural_ok.astype(bool) & S.neural_ok.fillna(False).astype(bool))
+        for wo in W_OURS:
+            neural[f"{1 - wo:g}pub+{wo:g}{name}"] = ((1 - wo) * z(P.neural_score.fillna(0)) + wo * z(S.neural_score.fillna(0)),
+                                                    P.neural_ok.astype(bool) & S.neural_ok.fillna(False).astype(bool))
         neural[f"{name}_only"] = (S.neural_score.fillna(0), S.neural_ok.fillna(False).astype(bool))
     mk = P.metric_key.astype(str)
     proc = P.processed.astype(bool)
@@ -85,13 +88,15 @@ def main():
     print(R.to_string(index=False))
     rng = np.random.default_rng(0)
     for name in scorers:
-        for w in (0.5, 0.75):
-            a_, b_ = per.get((f"0.5pub+0.5{name}", 0.25, w)), per.get(("public", 0.25, w))
-            if a_ is None:
-                continue
-            d = a_ - b_; bs = [d[rng.integers(len(d), size=len(d))].mean() for _ in range(4000)]
-            print(f"0.5pub+0.5{name} - public (w_mid {w}): {d.mean():+.4f}  95% CI [{np.percentile(bs, 2.5):+.4f}, "
-                  f"{np.percentile(bs, 97.5):+.4f}]  molecules up {(d > 0).sum()} down {(d < 0).sum()}")
+        for wo in W_OURS:
+            for w in (0.5, 0.75):
+                lab = f"{1 - wo:g}pub+{wo:g}{name}"
+                a_, b_ = per.get((lab, 0.25, w)), per.get(("public", 0.25, w))
+                if a_ is None:
+                    continue
+                d = a_ - b_; bs = [d[rng.integers(len(d), size=len(d))].mean() for _ in range(4000)]
+                print(f"{lab} - public (w_mid {w}): {d.mean():+.4f}  95% CI [{np.percentile(bs, 2.5):+.4f}, "
+                      f"{np.percentile(bs, 97.5):+.4f}]  molecules up {(d > 0).sum()} down {(d < 0).sum()}")
 
 
 if __name__ == "__main__":
