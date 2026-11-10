@@ -5,11 +5,15 @@ with random ones.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import torch
 
 from .model import ADDUCT_IDX
+
+INST_CLASSES = ["tims", "orbitrap", "qtof", "trap", "other"]   # scripts/meta/lib_instrument.py
 
 
 def ce_value(v) -> float:
@@ -40,6 +44,10 @@ class SpectraStore:
         self.a_mode = (sp.ionization_mode == "positive").to_numpy(np.int64)
         self.a_ce = sp.ce_mean.map(ce_value).to_numpy(np.float32)
         self.a_row = sp.mol_row.fillna(-1).to_numpy(np.int64)
+        ip = f"{lib}/instrument.parquet"   # row-aligned instrument class, when the library has it
+        self.a_inst = (pd.read_parquet(ip).instrument.map({c: i for i, c in enumerate(INST_CLASSES)}).fillna(4)
+                       .to_numpy(np.int64) if os.path.exists(ip) else np.full(len(sp), 4, np.int64))
+        self.inst_override = None   # evaluation: pretend every query came from this class
 
     def collate(self, spec_idx: np.ndarray, max_peaks: int = 64, device="cpu") -> dict:
         spec_idx = np.asarray(spec_idx)
@@ -60,6 +68,7 @@ class SpectraStore:
             "adduct": t(self.a_add[spec_idx], torch.long),
             "mode": t(self.a_mode[spec_idx], torch.long),
             "ce": t(self.a_ce[spec_idx]),
+            "inst": t(self.a_inst[spec_idx] if self.inst_override is None else np.full(len(spec_idx), self.inst_override), torch.long),
             "mol_id": t(rows, torch.long),
             "plm": t(np.asarray(self.plm[r], dtype=np.float32)),
             "fp": t(np.unpackbits(self.fp[r], axis=1).astype(np.float32)),

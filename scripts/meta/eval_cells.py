@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--tag", required=True)
     ap.add_argument("--max-mols", type=int, default=0)
     ap.add_argument("--dump", action="store_true", help="also save candidate-level z-scores (for fusion experiments)")
+    ap.add_argument("--inst-override", default="", help="E005: evaluate as if every query came from this instrument class")
     ap.add_argument("--shift-pos", type=float, default=0.0, help="add this to positive-mode query m/z (electron-convention test)")
     a = ap.parse_args()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -72,6 +73,9 @@ def main():
         models = [load_model(c, a.sae, dev)[0] for c in a.ckpt.split(",")]
         model = models[0]
         st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb")
+        if a.inst_override:
+            from casmi.data import INST_CLASSES
+            st.inst_override = INST_CLASSES.index(a.inst_override)
     names = a.only.split(",") if a.only else sorted(d for d in os.listdir(a.cells) if os.path.exists(f"{a.cells}/{d}/cands.parquet"))
     os.makedirs(f"{a.cells}/eval", exist_ok=True)
     summary = {"tag": a.tag, "ckpt": a.ckpt, "cells": {}}

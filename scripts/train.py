@@ -109,6 +109,7 @@ def main():
     ap.add_argument("--val", default="", help="validation dir from make_valset.py (its spectra are hidden)")
     ap.add_argument("--tag", default="", help="experiment name for the results log")
     ap.add_argument("--results", default="", help="append final metrics as one JSON line here")
+    ap.add_argument("--inst", action="store_true", help="E005: condition encoder and forward head on the instrument class")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -132,7 +133,8 @@ def main():
         ck = torch.load(a.sae, map_location=dev)
         sae = TopKSAE(ck["d_in"], ck["n_latent"], ck["k"]).to(dev).eval().requires_grad_(False)
         sae.load_state_dict(ck["state"])
-    model = SpecMolModel(d=a.d, layers=a.layers, drop=a.drop, sae_latent=sae.enc.out_features if sae else 0, fwd=a.fwd).to(dev)
+    model = SpecMolModel(d=a.d, layers=a.layers, drop=a.drop, sae_latent=sae.enc.out_features if sae else 0, fwd=a.fwd,
+                         n_inst=5 if a.inst else 0).to(dev)
     if a.init_encoder:
         model.enc.load_state_dict(torch.load(a.init_encoder, map_location=dev))
         print("encoder initialised from", a.init_encoder, flush=True)

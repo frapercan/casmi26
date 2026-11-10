@@ -37,8 +37,10 @@ class Fourier(nn.Module):
 
 
 class SpectrumEncoder(nn.Module):
-    def __init__(self, d: int = 256, layers: int = 4, heads: int = 8, nfour: int = 64, drop: float = 0.1):
+    def __init__(self, d: int = 256, layers: int = 4, heads: int = 8, nfour: int = 64, drop: float = 0.1,
+                 n_inst: int = 0):
         super().__init__()
+        self.inst = nn.Embedding(n_inst, d) if n_inst else None   # instrument class, added to the precursor token
         self.four = Fourier(nfour)
         f = 2 * nfour
         self.peak = nn.Sequential(nn.Linear(2 * f + 1, d), nn.GELU(), nn.Linear(d, d))
@@ -51,7 +53,7 @@ class SpectrumEncoder(nn.Module):
         self.norm = nn.LayerNorm(d)
         self.d = d
 
-    def forward(self, mz, it, pad, prec_mz, adduct, mode, ce, peak_mask=None, return_tokens=False):
+    def forward(self, mz, it, pad, prec_mz, adduct, mode, ce, peak_mask=None, return_tokens=False, inst=None):
         """mz,it,pad: (B,N); prec_mz,ce: (B,); adduct,mode: (B,) long.
         peak_mask: (B,N) bool, True = replace token by mask token (JEPA context)."""
         nl = (prec_mz.unsqueeze(1) - mz).clamp(min=0)
@@ -60,6 +62,8 @@ class SpectrumEncoder(nn.Module):
             tok = torch.where(peak_mask.unsqueeze(-1), self.mask_tok.expand_as(tok), tok)
         p = self.prec(torch.cat([self.four(prec_mz), (mode.float() * 2 - 1).unsqueeze(-1),
                                  (ce / 100).unsqueeze(-1)], -1)) + self.adduct(adduct)
+        if self.inst is not None and inst is not None:
+            p = p + self.inst(inst)
         x = torch.cat([p.unsqueeze(1), tok], 1)
         kpm = torch.cat([torch.zeros_like(pad[:, :1]), pad], 1)
         x = self.norm(self.tf(x, src_key_padding_mask=kpm))
@@ -72,16 +76,19 @@ def mlp(i, h, o, drop=0.1):
 
 class SpecMolModel(nn.Module):
     def __init__(self, plm_dim: int = 384, fp_bits: int = 2048, d: int = 256, emb: int = 256,
-                 sae_latent: int = 0, fwd: bool = False, **enc_kw):
+                 sae_latent: int = 0, fwd: bool = False, n_inst: int = 0, **enc_kw):
         super().__init__()
+        self.n_inst = n_inst
         if fwd:  # forward "world model": molecule + measurement conditions -> spectrum latent
             self.cond_add = nn.Embedding(len(ADDUCT_IDX) + 1, d)
             self.cond_num = mlp(2, d, d)
             self.fwd_m = mlp(plm_dim + fp_bits, 2 * d, emb)
             self.film = nn.Linear(d, 2 * emb)
+            if n_inst:   # the world model also knows the instrument it is asked to imagine
+                self.cond_inst = nn.Embedding(n_inst, d)
         self.has_fwd = fwd
         self.sae_head = mlp(d, 2 * d, sae_latent) if sae_latent else None
-        self.enc = SpectrumEncoder(d=d, **enc_kw)
+        self.enc = SpectrumEncoder(d=d, n_inst=n_inst, **enc_kw)
         self.proj_s = mlp(d, 2 * d, emb)
         self.pred = mlp(d, 2 * d, plm_dim)
         self.fp = mlp(d, 2 * d, fp_bits)
@@ -90,7 +97,7 @@ class SpecMolModel(nn.Module):
 
     def spec(self, batch):
         h = self.enc(batch["mz"], batch["it"], batch["pad"], batch["prec"], batch["adduct"],
-                     batch["mode"], batch["ce"])
+                     batch["mode"], batch["ce"], inst=batch.get("inst") if self.n_inst else None)
         return h
 
     def spec_emb(self, h):
@@ -103,7 +110,10 @@ class SpecMolModel(nn.Module):
 def cond_vec(model: SpecMolModel, batch):
     """Measurement conditions of each spectrum (adduct, polarity, collision energy) -> (B, d)."""
     num = torch.stack([batch["mode"].float() * 2 - 1, batch["ce"] / 100], -1)
-    return model.cond_add(batch["adduct"]) + model.cond_num(num)
+    c = model.cond_add(batch["adduct"]) + model.cond_num(num)
+    if getattr(model, "n_inst", 0):
+        c = c + model.cond_inst(batch["inst"])
+    return c
 
 
 def fwd_emb(model: SpecMolModel, plm, fp, cond):

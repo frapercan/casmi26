@@ -35,6 +35,7 @@ class GPUStore:
         self.add = t(st.a_add, torch.long)
         self.mode = t(st.a_mode, torch.long)
         self.ce = t(st.a_ce, torch.float32)
+        self.inst = t(st.a_inst, torch.long)
         self.row = t(st.a_row, torch.long)
         self.plm = t(st.plm, torch.float16)
         self.fp = t(st.fp, torch.uint8)
@@ -73,7 +74,7 @@ class GPUStore:
         r = self.row[sidx].clamp(min=0)
         return {"mz": self.mz[sidx], "it": self.it[sidx].float(), "pad": self.pad[sidx],
                 "prec": self.prec[sidx], "adduct": self.add[sidx], "mode": self.mode[sidx],
-                "ce": self.ce[sidx], "mol_id": self.row[sidx],
+                "ce": self.ce[sidx], "inst": self.inst[sidx], "mol_id": self.row[sidx],
                 "plm": self.plm[r].float(), "fp": self.unpack_fp(r)}
 
     def hard_negatives(self, b: dict, k: int, gen: torch.Generator, ppm: float = 10.0, pool: int = 0) -> dict:

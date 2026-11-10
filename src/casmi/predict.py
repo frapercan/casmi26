@@ -72,7 +72,8 @@ def load_model(ckpt: str, sae_path: str = "", device="cpu"):
         sae = TopKSAE(s["d_in"], s["n_latent"], s["k"]).to(device).eval()
         sae.load_state_dict(s["state"])
     model = SpecMolModel(d=args["d"], layers=args["layers"],
-                         sae_latent=sae.enc.out_features if sae else 0, fwd=args.get("fwd", False)).to(device).eval()
+                         sae_latent=sae.enc.out_features if sae else 0, fwd=args.get("fwd", False),
+                         n_inst=5 if args.get("inst") else 0).to(device).eval()
     model.load_state_dict(ck["model"])
     return model, sae
 
