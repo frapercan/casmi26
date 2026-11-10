@@ -1,0 +1,118 @@
+{
+ "id": "E001",
+ "title": "JEPA-v2 pretraining of the spectrum encoder (J4)",
+ "kind": "one_axis",
+ "axis": "initialisation of the spectrum encoder: random (A0), JEPA-v2 with context and m/z queries (A1), JEPA ctx-free control (A2); everything else identical (work/w4, --val work/cells, wm-canon recipe, 31k steps, seed 0)",
+ "question": "Does masked-peak latent prediction pretraining make the fine-tuned model rank natural products better against full PubChem windows, and does the gain need the spectrum context?",
+ "hypothesis": "A1 beats A0 on np_c2 (primary) without losing on np_tims, and A1 beats A2.",
+ "arms": {
+  "A0": "w4base_s0",
+  "A1": "w4jepa_v2_s0",
+  "A2": "w4jepa_cf_s0"
+ },
+ "candidate_arms": [
+  "A1",
+  "A2"
+ ],
+ "cells": [
+  "np_c2",
+  "np_tims"
+ ],
+ "rules": {
+  "primary": {
+   "cell": "np_c2",
+   "metric": "mass:nf+0.25doc"
+  },
+  "metrics": [
+   "mass:nf+0.25doc",
+   "mass:nf"
+  ],
+  "contrasts": [
+   [
+    "A1",
+    "A0"
+   ],
+   [
+    "A1",
+    "A2"
+   ],
+   [
+    "A2",
+    "A0"
+   ]
+  ],
+  "bootstrap": {
+   "resamples": 4000,
+   "seed": 0,
+   "paired_by": "mol_id",
+   "ci": 0.95
+  },
+  "verdict": {
+   "jepa_helps": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:nf+0.25doc",
+     "test": "ci_low>0"
+    },
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_tims",
+     "metric": "mass:nf+0.25doc",
+     "test": "mean>-0.01"
+    }
+   ],
+   "gain_needs_context": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:nf+0.25doc",
+     "test": "ci_low>0"
+    },
+    {
+     "contrast": [
+      "A1",
+      "A2"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:nf+0.25doc",
+     "test": "ci_low>0"
+    }
+   ],
+   "jepa_hurts": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:nf+0.25doc",
+     "test": "ci_high<0"
+    }
+   ]
+  },
+  "leak_policy": "every arm leak-free (spectra, init encoder, anchors) on every cell, else void",
+  "consequence": "jepa_helps -> the JEPA-v2 checkpoint becomes the bundle candidate for the LB probe; otherwise the bundle keeps A0",
+  "limitations": [
+   "one seed per arm (seed differences so far: holdout 0.002, np_tims fused 0.001)",
+   "pretraining budget 20k steps x 512 spectra (~2.3 h on the 3060)"
+  ]
+ },
+ "frozen_at": "2026-11-10T02:14:50+01:00",
+ "commit": "d145b61",
+ "rules_sha256": "cfbdd32f49a8745063f941af26bdec94a15f292aedeacb726cb99d1bdd7388be",
+ "arms_with_results_at_freeze": [
+  "A0"
+ ],
+ "post_hoc": false,
+ "state": "frozen"
+}

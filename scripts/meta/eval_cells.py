@@ -113,6 +113,8 @@ def main():
                                                **{f"z_{h}": z(v).astype(np.float16) for h, v in H.items()}}))
                 ens = z(H["nce"]) + z(H["jepa"]) + 0.5 * z(H["fp"]) + (z(H["fwd"]) if "fwd" in H else 0)
                 V["ens"] = ens
+                if "fwd" in H:   # the deployed combination (hybrid/ours_neural_scores.py)
+                    V["nf"] = (z(H["nce"]) + z(H["fwd"])) / 2
             r = {"mol_id": mid, "n": len(sid), "n_formula": int(sf.sum())}
             for setting, m in (("mass", np.ones(len(sid), bool)), ("formula", sf)):
                 if not truth[m].any():
@@ -120,7 +122,7 @@ def main():
                 for v, s in V.items():
                     r[f"{setting}:{v}"] = rr_at25(s[m] if v == "prior" else z(s[m]), truth[m], jit[m])
                 if model is not None:
-                    for v in ("nce", "fwd", "ens"):
+                    for v in ("nce", "fwd", "ens", "nf"):
                         if v not in V:
                             continue
                         zz = z(V[v][m])

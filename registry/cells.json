@@ -1,0 +1,80 @@
+{
+ "np_tims": {
+  "name": "np_tims",
+  "dir": "work/cells/np_tims",
+  "role": "valid",
+  "simulates": "class 2, timsTOF natural products (Enveda's own panel)",
+  "population": "enveda-np-examples structures in the PubChem tier, one neutral species; their timsTOF spectra as queries; excluded from every training (spectra, anchors, negatives) since the start",
+  "biases": [
+   "far better documented than the typical NP (doc median 13.0): the documentation prior is optimistic",
+   "the prior weight 0.25 was chosen on it on 2026-11-09"
+  ],
+  "n_molecules": 245,
+  "n_queries": 1168,
+  "n_candidate_rows": 1558635,
+  "doc_median": 12.98828125,
+  "mass_median": 357.07678567199997,
+  "sha256": {
+   "molecules.parquet": "33c3f6807f544b99e0c36011b8c435ea94c624de7e96e30dd76595d4251cf037",
+   "queries.parquet": "3558a36832c504978d44d6e2a3b34ae752d90ef469592aa4fe69f32a502030f7",
+   "cands.parquet": "0711919d68c86c52bcdbec184e752bb2d0e1367b934e6b115b494327aea0d91e",
+   "structs.parquet": "0ba975813abb35fd1a8efea244608168878fb5aac58165bc7b9795c721b55fa0",
+   "exclude_all_ik.txt": "71e205fcca87332b7511e5d72722d446bf4db5ced8150163468a3b0edc41f1ed",
+   "plm.npy": "031cfc471912154860a13a26bc78a67a9603b5a37a0094f3f8a0a4e65a47a9a6",
+   "fp.npy": "33cf69722963f3e83f89085d83733fef5558f0a9add58fe8fdd3fc01f286c161"
+  },
+  "frozen_at": "2026-11-10T02:14:23+01:00",
+  "commit": "d145b61"
+ },
+ "np_c2": {
+  "name": "np_c2",
+  "dir": "work/cells/np_c2",
+  "role": "valid",
+  "simulates": "class 2, natural products without reference spectra",
+  "population": "COCONUT/LOTUS/NPAtlas structures with public spectra, 157-1159 Da, mass histogram matched to np-examples (n 800, seed 0); all their spectra hidden from training (work/cells registry)",
+  "biases": [
+   "selected by NP-database membership: NP-membership priors are circular here",
+   "queries are Orbitrap/QTOF library spectra, not timsTOF"
+  ],
+  "n_molecules": 801,
+  "n_queries": 3606,
+  "n_candidate_rows": 5510577,
+  "doc_median": 5.4814453125,
+  "mass_median": 356.19875937599994,
+  "sha256": {
+   "molecules.parquet": "1417d3bc4931aa27c5c8f92ad1b7d2b58697151fa663a6d1ae85af8abd484ac9",
+   "queries.parquet": "e66c52f65145f6e9b70cdd01cdb3f744a58434cc6763a3909ab1f158030163a9",
+   "cands.parquet": "628711241dfd5313192c998009d41921968ccb2b0a93b07526dad238008f32d5",
+   "structs.parquet": "7cb6b0c0210672834dc05b4bec9092702c68b2d7b3459cbe79a1d00731d887e7",
+   "exclude_all_ik.txt": "17c48f41505775df7ff16ff6fff3de6037e432451e31435ba4a4082d9e377e26",
+   "plm.npy": "4e7fb265c57b86865b48497267a42b0cae6bc263c0aae055ebbda8c53859f9f3",
+   "fp.npy": "75972e661a085a4a9b8f6f4f8fd062ea90cd6efff09bd366ba596916f82ec0c3"
+  },
+  "frozen_at": "2026-11-10T02:14:27+01:00",
+  "commit": "d145b61"
+ },
+ "np_like": {
+  "name": "np_like",
+  "dir": "work/cells_x/np_like",
+  "role": "prior_only",
+  "simulates": "class 2, NP-like structures, database membership free",
+  "population": "Ertl NP-score > 1, public spectra, mass-matched (n 800, seed 0), disjoint from the work/cells registry; 82% carry an NP-database bit",
+  "biases": [
+   "its spectra are NOT hidden from any training so far: model results on it are leaky until a model is trained with work/cells_x hidden"
+  ],
+  "n_molecules": 801,
+  "n_queries": 3430,
+  "n_candidate_rows": 4700505,
+  "doc_median": 5.220703125,
+  "mass_median": 354.1467238039999,
+  "sha256": {
+   "molecules.parquet": "958fbb7b9d2573d7183bd589d4a1c1e1ce2757e4758f341bd0654b7a94665a7b",
+   "queries.parquet": "573678444a12e799ed7e7080f2e84123cf5016562e36ead4d9f3737f990903f4",
+   "cands.parquet": "174fc0c9c04f93ddf841d6edfed468d600215f64cd333213d9dd889ae457def6",
+   "structs.parquet": "f1d2a377672e63ce658c4519fecd044c2fd0c856786a924660fe9536e050260b",
+   "exclude_all_ik.txt": "306d50375bcad1e447ddfa31f666dad80b2e53bbbea48a7f6788515bb2c6a0de"
+  },
+  "frozen_at": "2026-11-10T02:14:27+01:00",
+  "commit": "d145b61"
+ }
+}
