@@ -945,3 +945,37 @@ Atajo de formato confirmado: las cabezas jepa y sae son en gran parte atajo, y n
 Para celdas parecidas al test hay 23,415 estructuras NP (COCONUT, 157–1159 Da, una sola especie neutra) con espectros públicos en train, 15,276 de ellas con PubMed. Por librería: gnps 15.3k, riken 11.1k, mona 8.5k, pluskal 7.7k, msdial 6.5k, massbank 4.9k. De ellas, 295 son timsTOF (244 de np-examples).
 
 Consecuencia: las celdas de clase 2 y 3 del plan deben construirse sobre estas estructuras NP, ocultando todos sus espectros de la librería (c2_sim) y, en clase 3, también de las DB (c3_del), con estratificación por masa como el test. Las celdas basadas en Enveda-180 pasan a ser un estrato de control fuera de dominio.
+
+## Anexo B — Resultados del 2026-11-09/10: celdas NP, comparación con el método público y B0-repro
+
+**Celdas de validación NP** (`scripts/meta/build_cells.py`; candidatos = toda la ventana PubChem a 10 ppm, deduplicada por InChIKey-14, SMILES canónicos sin estéreo):
+
+| celda | moléculas | consultas | candidatos/mol (mediana) | misma fórmula | doc mediana | qué simula |
+|---|---|---|---|---|---|---|
+| `np_tims` | 245 | 1,168 timsTOF | 5,266 | 902 | 13.0 | np-examples (excluidas de todo entrenamiento) |
+| `np_c2` | 801 | 3,606 | 6,063 | 980 | 5.5 | NP de COCONUT/LOTUS/NPAtlas, masa igualada a np-examples, todos sus espectros ocultos |
+| `np_like` (`work/cells_x`) | 801 | 3,430 | 5,409 | 601 | 5.2 | NP por NP-score > 1 sin exigir pertenencia a DB (82 % la tiene); solo para priors |
+
+Registro de exclusión: `work/cells/exclude_all_ik.txt` (1,585 estructuras + celda c3). Tabla de entrenamiento `work/emb_v4` sin ellas.
+
+**MRR@25 (ventana completa, honesto salvo donde se indica):**
+
+| | np_tims | np_c2 |
+|---|---|---|
+| prior doc = ln(1+sustancias)+ln(1+PubMed) | 0.788 | 0.330 |
+| modelo w4base, solo (nce / fwd / (nce+fwd)/2) | 0.347 / 0.318 / 0.357 | 0.354 / 0.359 / 0.375 |
+| z(fwd) + 0.25·doc | 0.887 | 0.577 |
+| J3 (vio los espectros de np_c2) | 0.887 | 0.750 (fuga: memorización +0.23 en modelo solo) |
+| ensemble 3 checkpoints | 0.892 | — |
+
+Semillas: holdout 0.752/0.751, np_tims 0.887/0.886. Sensibilidad a ±0.000548 Da en las consultas: ruido (±0.01 modelo solo, 0.887–0.890 fusionado).
+
+**Comparación con el método público** (`scripts/meta/panel_h2h.py`; panel de 250 NP timsTOF, mismos candidatos y métrica que `casmi26-natural-product-panel-benchmark`): nuestro modelo solo 0.453 frente a FPNet fold-safe 0.298 (+0.136, IC95 [+0.088, +0.187]); el FPNet A+B público, que vio esas moléculas, 0.522. Con prior: 0.991 frente a 0.982 (saturado).
+
+**Priors:** bonus por bit COCONUT/NP sobre doc: np_tims 0.788→0.808, np_like 0.246→0.301 (no circular; las moléculas sin bit bajan 0.088→0.053, compensa si >~1/3 del test tiene bit), np_c2 0.330→0.436 (circular). Fusión logit condicional aprendida (`scripts/meta/fusion_cells.py`): np_c2 0.611 aprendida en np_tims (0.666 con CV interna, circular); np_tims 0.875 frente a 0.887 de la regla manual. Duplicados IK14 en las listas del pipeline: 0 (ya deduplica).
+
+**Calibración aproximada con las sondas LB** (rangos, no medida): solo librería 0.152 → clase 1 ≈ 17–19 %; con MRR plausibles de 0.5–0.8 en clase 2 y 0.05–0.1 en clase 3, la clase 3 sería ≈ 25–46 % del test. +0.05 en clase 2 ≈ +0.02 LB.
+
+**Historia del notebook 0.480** (sus propias tablas): m1 (solo neural público) 0.477 → capa final midx 0.479 → segundo scorer (bgunshui, kernel ya borrado) 0.480. Sin el kernel borrado el notebook cae al neural público solo (~0.479). Los cambios de modelo neural mejores offline perdieron en el LB (−0.019 a −0.058); el puesto 1 es lo frágil.
+
+**B0-repro** (`hybrid/build_b0repro.py`, `hybrid/ours_neural_scores.py`, `hybrid/build_ours_bundle.py`): nuestro modelo en el hueco del segundo scorer (0.5·z(público)+0.5·z(nuestro), puestos 2–25; puesto 1 leader-safe sin cambios) y en los candidatos externos; si falla, el notebook vuelve al público solo. Bundle de 85 MB (código, checkpoint, ChemBERTa original del hub, media PLM); 12 s en GPU / 58 s en CPU para 10.7k candidatos. Repetición offline del consenso sobre la ejecución real `eval-c3` (430 moléculas Enveda-180, fuera de dominio): sin neural 0.629, neural público 0.615, público + nuestro 0.630 (+0.014 frente al público, IC95 [+0.007, +0.023], 75 suben / 44 bajan; `hybrid/replay_consensus.py`). Pendiente: prueba de humo local del notebook completo y, con permiso, dataset privado + commit (~26 min GPU) + 1 envío (~3.5–4 h GPU).

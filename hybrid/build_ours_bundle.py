@@ -23,10 +23,25 @@ shutil.copytree(os.path.join(root, "src", "casmi"), os.path.join(a.out, "src", "
 shutil.copy2(a.ckpt, os.path.join(a.out, "ours.pt"))
 shutil.copy2(a.plm_mean, os.path.join(a.out, "plm_mean.npy"))
 shutil.copy2(os.path.join(os.path.dirname(__file__), "ours_neural_scores.py"), os.path.join(a.out, "ours_neural_scores.py"))
+# the PLM as the original hub files (config, tokenizer, safetensors weights), not re-saved by our newer transformers,
+# so the older transformers of the Kaggle image reads them as it reads the hub snapshot
+import glob  # noqa: E402
+snaps = glob.glob(os.path.expanduser("~/.cache/huggingface/hub/models--DeepChem--ChemBERTa-77M-MTR/snapshots/*/"))
+files = {}
+for sd in snaps:
+    for f in os.listdir(sd):
+        if f != "pytorch_model.bin":
+            files.setdefault(f, os.path.join(sd, f))
+need = {"config.json", "model.safetensors", "tokenizer_config.json", "vocab.json", "merges.txt"}
+assert need <= set(files), f"PLM snapshot incomplete: missing {need - set(files)}"
+os.makedirs(os.path.join(a.out, "plm"))
+for f, src in files.items():
+    shutil.copy2(os.path.realpath(src), os.path.join(a.out, "plm", f))
 from casmi.plm import PLMEmbedder  # noqa: E402
-e = PLMEmbedder(device="cpu")
-e.tok.save_pretrained(os.path.join(a.out, "plm"))
-e.model.save_pretrained(os.path.join(a.out, "plm"))
+import numpy as np  # noqa: E402
+ref = PLMEmbedder(device="cpu").embed(["CCO", "c1ccccc1O"])
+got = PLMEmbedder(os.path.join(a.out, "plm"), device="cpu").embed(["CCO", "c1ccccc1O"])
+assert np.allclose(ref, got, atol=1e-5), "bundled PLM differs from the hub model"
 json.dump({"checkpoint": "ours.pt", "electron_shift_pos": a.electron_shift_pos, "source_ckpt": a.ckpt},
           open(os.path.join(a.out, "ours_config.json"), "w"), indent=1)
 print("bundle", a.out, sorted(os.listdir(a.out)))

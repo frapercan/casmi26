@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--tag", required=True)
     ap.add_argument("--max-mols", type=int, default=0)
     ap.add_argument("--dump", action="store_true", help="also save candidate-level z-scores (for fusion experiments)")
+    ap.add_argument("--shift-pos", type=float, default=0.0, help="add this to positive-mode query m/z (electron-convention test)")
     a = ap.parse_args()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model = st = None
@@ -98,6 +99,10 @@ def main():
             V = {"prior": doc.astype(np.float64)}
             if model is not None:
                 b = st.collate(qby[mid], device=dev)
+                if a.shift_pos:
+                    pos = (b["mode"] == 1)[:, None] & ~b["pad"]
+                    b["mz"] = torch.where(pos, b["mz"] + a.shift_pos, b["mz"])
+                    b["prec"] = torch.where(b["mode"] == 1, b["prec"] + a.shift_pos, b["prec"])
                 plm = plm_all[sid].to(dev)
                 fp = torch.as_tensor(np.unpackbits(fp_all[sid], axis=1), device=dev)
                 Hs = [head_scores(m_, b, plm, fp) for m_ in models]
