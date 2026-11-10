@@ -61,13 +61,15 @@ def main():
     ap.add_argument("--work", default="work/w3", help="lib + emb for query spectra")
     ap.add_argument("--tag", required=True)
     ap.add_argument("--max-mols", type=int, default=0)
+    ap.add_argument("--dump", action="store_true", help="also save candidate-level z-scores (for fusion experiments)")
     a = ap.parse_args()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model = st = None
-    if a.ckpt:
+    if a.ckpt:   # several comma-separated checkpoints = ensemble (per-model z-scores averaged)
         from casmi.predict import load_model
         from casmi.data import SpectraStore
-        model, sae = load_model(a.ckpt, a.sae, dev)
+        models = [load_model(c, a.sae, dev)[0] for c in a.ckpt.split(",")]
+        model = models[0]
         st = SpectraStore(f"{a.work}/lib", f"{a.work}/emb")
     names = a.only.split(",") if a.only else sorted(d for d in os.listdir(a.cells) if os.path.exists(f"{a.cells}/{d}/cands.parquet"))
     os.makedirs(f"{a.cells}/eval", exist_ok=True)
@@ -84,7 +86,7 @@ def main():
         if model is not None:
             plm_all = torch.as_tensor(np.load(f"{d}/plm.npy", mmap_mode="r")[:], device="cpu")
             fp_all = np.load(f"{d}/fp.npy", mmap_mode="r")
-        rows = []
+        rows, dumps = [], []
         for k, (mid, g) in enumerate(C.groupby("mol_id", sort=False)):
             if a.max_mols and k >= a.max_mols:
                 break
@@ -98,8 +100,12 @@ def main():
                 b = st.collate(qby[mid], device=dev)
                 plm = plm_all[sid].to(dev)
                 fp = torch.as_tensor(np.unpackbits(fp_all[sid], axis=1), device=dev)
-                H = head_scores(model, b, plm, fp)
+                Hs = [head_scores(m_, b, plm, fp) for m_ in models]
+                H = {h: np.mean([z(x[h]) for x in Hs], 0) if len(Hs) > 1 else Hs[0][h] for h in Hs[0]}
                 V.update(H)
+                if a.dump:
+                    dumps.append(pd.DataFrame({"mol_id": mid, "sid": sid, "is_truth": truth, "same_formula": sf,
+                                               **{f"z_{h}": z(v).astype(np.float16) for h, v in H.items()}}))
                 ens = z(H["nce"]) + z(H["jepa"]) + 0.5 * z(H["fp"]) + (z(H["fwd"]) if "fwd" in H else 0)
                 V["ens"] = ens
             r = {"mol_id": mid, "n": len(sid), "n_formula": int(sf.sum())}
@@ -116,6 +122,8 @@ def main():
                         for w in W_GRID:
                             r[f"{setting}:{v}+{w}doc"] = rr_at25(zz + w * doc[m], truth[m], jit[m])
             rows.append(r)
+        if dumps:
+            pd.concat(dumps, ignore_index=True).to_parquet(f"{a.cells}/eval/{a.tag}__{name}__cands.parquet", index=False)
         R = pd.DataFrame(rows).merge(mols[["mol_id", "mass_bin", "doc", "exact_mass", "pc_formula_isomers"]], on="mol_id")
         R.to_parquet(f"{a.cells}/eval/{a.tag}__{name}.parquet", index=False)
         cols = [c for c in R.columns if ":" in c]

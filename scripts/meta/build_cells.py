@@ -139,6 +139,8 @@ def main():
     ap.add_argument("--max-spec", type=int, default=6, help="query spectra per np_c2 molecule")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=os.cpu_count())
+    ap.add_argument("--cells", default="np_tims,np_c2", help="which cells to build (np_tims, np_c2, np_like)")
+    ap.add_argument("--avoid", action="append", default=[], help="structure lists that must not be sampled (other registries)")
     ap.add_argument("--embed", action="store_true")
     ap.add_argument("--plm-mean", default="work/emb_v3/plm_mean.npy")
     a = ap.parse_args()
@@ -154,13 +156,23 @@ def main():
     clean = (M.n_frag == 1) & (M.formal_charge == 0)
 
     cells = {}
+    want = a.cells.split(",")
     T = M[is_npx & M.in_pubchem_tier & clean].copy()
-    cells["np_tims"] = T
+    if "np_tims" in want:
+        cells["np_tims"] = T
     used = set(M.ik14_lib[is_npx]) | hold | c3x | c3e
-    U = M[(M.in_coconut | M.in_lotus | M.in_npatlas) & (M.n_public_libs > 0) & M.in_test_mass_range & clean
-          & M.in_pubchem_tier & ~M.ik14_lib.isin(used) & ~M.ik14_raw.isin(used)]
-    cells["np_c2"] = mass_sample(U, T.exact_mass.to_numpy(), a.n_np, rng)
-    log(f"NP universe {len(U)} -> np_c2 {len(cells['np_c2'])}; np_tims {len(T)}")
+    for f in a.avoid:
+        used |= set(open(f).read().split())
+    base = (M.n_public_libs > 0) & M.in_test_mass_range & clean & M.in_pubchem_tier & ~M.ik14_lib.isin(used) & ~M.ik14_raw.isin(used)
+    if "np_c2" in want:   # natural products by database membership (COCONUT / LOTUS / NPAtlas)
+        U = M[base & (M.in_coconut | M.in_lotus | M.in_npatlas)]
+        cells["np_c2"] = mass_sample(U, T.exact_mass.to_numpy(), a.n_np, rng)
+        log(f"NP universe {len(U)} -> np_c2 {len(cells['np_c2'])}")
+    if "np_like" in want:  # natural-product-LIKE by structure (Ertl NP-score > 1), database membership not required:
+        U = M[base & (M.np_score > 1)]   # judges database-membership priors without the selection circularity of np_c2
+        cells["np_like"] = mass_sample(U, T.exact_mass.to_numpy(), a.n_np, rng)
+        log(f"NP-like universe {len(U)} -> np_like {len(cells['np_like'])}, in an NP database "
+            f"{(cells['np_like'].in_coconut | cells['np_like'].in_lotus | cells['np_like'].in_npatlas).mean():.3f}")
 
     by_ik = spec.groupby("inchikey14").indices
     excl_all = set(c3x)
