@@ -1,0 +1,125 @@
+{
+ "id": "E002",
+ "title": "KNN transfer from a vector index of library spectra",
+ "kind": "one_axis",
+ "axis": "scoring rule: A0 = z(nf) + 0.25 doc; A1 = A0 + beta * z(knn), knn = similarity-weighted Tanimoto of the candidate to the structures of the query's nearest library spectra",
+ "question": "Do the structures of a query's nearest library spectra (in our model's spectrum embedding space) carry ranking information beyond our model and the documentation prior?",
+ "hypothesis": "A1 beats A0 on np_c2 (primary) without losing on np_tims.",
+ "arms": {
+  "A0": "e002_A0",
+  "A1": "e002_A1"
+ },
+ "arm_weights": {
+  "A0": "w4base_s0",
+  "A1": "w4base_s0"
+ },
+ "candidate_arms": [
+  "A1"
+ ],
+ "cells": [
+  "np_c2",
+  "np_tims"
+ ],
+ "rules": {
+  "index": "every library spectrum the model w4base_s0 trained on (work/w4 with --val work/cells: holdout, np-examples and the work/cells registry hidden); asserted free of cell structures",
+  "embedding": "model.spec_emb of w4base_s0, cosine",
+  "knn": {
+   "k_per_spectrum": 20,
+   "weights": "softmax(cos / 0.05) over the union of the molecule's neighbours",
+   "fingerprint": "Morgan r2 2048"
+  },
+  "beta_selection": "grid {0.25, 0.5, 1, 2}; the beta used on each cell is the best mean MRR on the OTHER cell (np_c2 <- np_tims, np_tims <- np_c2)",
+  "primary": {
+   "cell": "np_c2",
+   "metric": "mass:score"
+  },
+  "metrics": [
+   "mass:score"
+  ],
+  "contrasts": [
+   [
+    "A1",
+    "A0"
+   ]
+  ],
+  "bootstrap": {
+   "resamples": 4000,
+   "seed": 0,
+   "paired_by": "mol_id",
+   "ci": 0.95
+  },
+  "verdict": {
+   "knn_helps": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:score",
+     "test": "ci_low>0"
+    },
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_tims",
+     "metric": "mass:score",
+     "test": "mean>-0.01"
+    }
+   ],
+   "knn_hurts": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:score",
+     "test": "ci_high<0"
+    }
+   ]
+  },
+  "leak_policy": "every arm leak-free on every cell, and the index holds no spectrum of a cell structure, else void",
+  "consequence": "knn_helps -> the KNN term becomes a candidate signal for the pipeline's ranks 2-25 (to be replayed on eval-c3 before any LB use)",
+  "limitations": [
+   "one model (w4base_s0)",
+   "library structures only: the signal cannot name a structure absent from the library"
+  ]
+ },
+ "frozen_at": "2026-11-10T02:18:58+01:00",
+ "commit": "ed35ee2",
+ "rules_sha256": "b19f341d80b3ccd7f426dad3105176a59899691e384a345f1df9b40c9886ab88",
+ "arms_with_results_at_freeze": [],
+ "post_hoc": false,
+ "state": "reported",
+ "report": {
+  "A1-A0|np_c2|mass:score": {
+   "mean": 0.012363905524564255,
+   "ci95": [
+    -0.0010809999002122886,
+    0.0254615335355653
+   ],
+   "n": 801,
+   "up": 165,
+   "down": 128
+  },
+  "A1-A0|np_tims|mass:score": {
+   "mean": -0.00887983331860883,
+   "ci95": [
+    -0.026088921282798837,
+    0.008008740833995937
+   ],
+   "n": 245,
+   "up": 14,
+   "down": 18
+  }
+ },
+ "verdict": {
+  "knn_helps": false,
+  "knn_hurts": false
+ },
+ "reported_at": "2026-11-10T02:35:35+01:00",
+ "report_sha256": "839d98e15dd92129674d3ee56d80dfc50f5a442524691727f2f5eb3e14c13cf4"
+}

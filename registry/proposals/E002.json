@@ -1,0 +1,30 @@
+{
+ "id": "E002",
+ "title": "KNN transfer from a vector index of library spectra",
+ "kind": "one_axis",
+ "axis": "scoring rule: A0 = z(nf) + 0.25 doc; A1 = A0 + beta * z(knn), knn = similarity-weighted Tanimoto of the candidate to the structures of the query's nearest library spectra",
+ "question": "Do the structures of a query's nearest library spectra (in our model's spectrum embedding space) carry ranking information beyond our model and the documentation prior?",
+ "hypothesis": "A1 beats A0 on np_c2 (primary) without losing on np_tims.",
+ "arms": {"A0": "e002_A0", "A1": "e002_A1"},
+ "arm_weights": {"A0": "w4base_s0", "A1": "w4base_s0"},
+ "candidate_arms": ["A1"],
+ "cells": ["np_c2", "np_tims"],
+ "rules": {
+  "index": "every library spectrum the model w4base_s0 trained on (work/w4 with --val work/cells: holdout, np-examples and the work/cells registry hidden); asserted free of cell structures",
+  "embedding": "model.spec_emb of w4base_s0, cosine",
+  "knn": {"k_per_spectrum": 20, "weights": "softmax(cos / 0.05) over the union of the molecule's neighbours", "fingerprint": "Morgan r2 2048"},
+  "beta_selection": "grid {0.25, 0.5, 1, 2}; the beta used on each cell is the best mean MRR on the OTHER cell (np_c2 <- np_tims, np_tims <- np_c2)",
+  "primary": {"cell": "np_c2", "metric": "mass:score"},
+  "metrics": ["mass:score"],
+  "contrasts": [["A1", "A0"]],
+  "bootstrap": {"resamples": 4000, "seed": 0, "paired_by": "mol_id", "ci": 0.95},
+  "verdict": {
+   "knn_helps": [{"contrast": ["A1", "A0"], "cell": "np_c2", "metric": "mass:score", "test": "ci_low>0"},
+                 {"contrast": ["A1", "A0"], "cell": "np_tims", "metric": "mass:score", "test": "mean>-0.01"}],
+   "knn_hurts": [{"contrast": ["A1", "A0"], "cell": "np_c2", "metric": "mass:score", "test": "ci_high<0"}]
+  },
+  "leak_policy": "every arm leak-free on every cell, and the index holds no spectrum of a cell structure, else void",
+  "consequence": "knn_helps -> the KNN term becomes a candidate signal for the pipeline's ranks 2-25 (to be replayed on eval-c3 before any LB use)",
+  "limitations": ["one model (w4base_s0)", "library structures only: the signal cannot name a structure absent from the library"]
+ }
+}

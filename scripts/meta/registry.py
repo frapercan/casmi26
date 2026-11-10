@@ -205,8 +205,9 @@ def explore_cmd(a):
     path = f"{REG}/explorations/{a.target}.json"
     E = json.load(open(path))
     assert sha_obj(E["rules"]) == E["rules_sha256"], "rules changed after freezing"
-    rules, rng = E["rules"], np.random.default_rng(rules["bootstrap"]["seed"])
-    for k, w in E["arms"].items():
+    rules = E["rules"]
+    rng = np.random.default_rng(rules["bootstrap"]["seed"])
+    for k, w in E.get("arm_weights", E["arms"]).items():   # arms may be scoring rules over registered weights
         lk = leak_report(w, verbose=False)
         for c in E["cells"]:
             if not lk[c]["leak_free"]:
