@@ -12,6 +12,7 @@ ap.add_argument("--ckpt", required=True)
 ap.add_argument("--plm-mean", required=True)
 ap.add_argument("--out", default="work/bundle_ours")
 ap.add_argument("--electron-shift-pos", type=float, default=0.000548)
+ap.add_argument("--tar", default="", help="also pack the bundle into this uncompressed tar (one file to upload)")
 a = ap.parse_args()
 root = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.join(root, "src"))
@@ -42,6 +43,16 @@ import numpy as np  # noqa: E402
 ref = PLMEmbedder(device="cpu").embed(["CCO", "c1ccccc1O"])
 got = PLMEmbedder(os.path.join(a.out, "plm"), device="cpu").embed(["CCO", "c1ccccc1O"])
 assert np.allclose(ref, got, atol=1e-5), "bundled PLM differs from the hub model"
+# reference embeddings (centred) so the scorer can detect a PLM that behaves differently in another environment
+CHECK = ["CCO", "c1ccccc1O", "CC(=O)OC1=CC=CC=C1C(=O)O", "OC1C(O)C(O)C(CO)OC1O"]
+pe = PLMEmbedder(os.path.join(a.out, "plm"), device="cpu", mean=np.load(a.plm_mean))
+np.save(os.path.join(a.out, "plm_check.npy"), pe.embed(CHECK).astype(np.float32))
+json.dump(CHECK, open(os.path.join(a.out, "plm_check.json"), "w"))
 json.dump({"checkpoint": "ours.pt", "electron_shift_pos": a.electron_shift_pos, "source_ckpt": a.ckpt},
           open(os.path.join(a.out, "ours_config.json"), "w"), indent=1)
 print("bundle", a.out, sorted(os.listdir(a.out)))
+if a.tar:
+    import tarfile
+    with tarfile.open(a.tar, "w") as t:
+        t.add(a.out, arcname="bundle_ours")
+    print("packed", a.tar, os.path.getsize(a.tar) // 2**20, "MB")

@@ -24,6 +24,16 @@ CELL14 = r'''BUNDLE = materialise_sources()
 # Reproducible: code and training in the casmi26 repository; bundle (code, checkpoint, PLM snapshot) attached as a dataset.
 from pathlib import Path as _P
 _cfg = sorted(_P('/kaggle/input').rglob('ours_config.json'))
+if not _cfg:   # the dataset holds the bundle as one tar: unpack it into the working directory
+    import tarfile as _tf
+    _tars = sorted(_P('/kaggle/input').rglob('bundle_ours.tar'))
+    if _tars:
+        with _tf.open(_tars[0]) as _t:
+            try:
+                _t.extractall(ROOT / 'ours_extracted', filter='data')
+            except TypeError:
+                _t.extractall(ROOT / 'ours_extracted')
+        _cfg = sorted((ROOT / 'ours_extracted').rglob('ours_config.json'))
 OURS_DIR = _cfg[0].parent if _cfg else None
 print('OUR SCORER BUNDLE:', OURS_DIR, flush=True)
 
@@ -45,6 +55,7 @@ OURS_OK = False
 if NEURAL_OK and OURS_DIR is not None:
     try:
         score_ours(ROOT / 'frozen_candidate_evidence.parquet', ROOT / 'neural_ours.parquet', 'Our scorer · final lists')
+        print(''.join(l for l in open(ROOT / 'neural_ours.log') if l.startswith('ours:')), flush=True)
         OURS_OK = True
     except Exception as exc:
         note('Our scorer failed.', f'Public neural model only. {type(exc).__name__}: {str(exc)[:300]}', RED)
@@ -60,6 +71,10 @@ if OURS_OK:
     _a['neural_fp'] = 0.5 * _a['neural_fp'] + 0.5 * _b['neural_fp'].fillna(0.0)
     _a['neural_std'] = 0.5 * _a['neural_std'] + 0.5 * _b['neural_std'].fillna(0.0)
     _a['neural_ok'] = _a['neural_ok'].astype(bool) & _b['neural_ok'].fillna(False).astype(bool)
+    _rc = [_g['p'].rank().corr(_g['o'].rank()) for _, _g in
+           _pd.DataFrame({'p': _pd.read_parquet(ROOT / 'neural_public.parquet').set_index(['molecule_id', 'smiles']).neural_score,
+                          'o': _b.neural_score}).groupby(level=0) if len(_g) > 2]
+    print(f'OURS-vs-PUBLIC rank correlation: median {float(np.nanmedian(_rc)):.3f} over {len(_rc)} molecules', flush=True)
     _a.reset_index().to_parquet(ROOT / 'neural_candidate_features.parquet', index=False)
     print('ENSEMBLE neural = 0.5*z(public) + 0.5*z(ours)', flush=True)
 if not NEURAL_OK:

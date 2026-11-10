@@ -40,6 +40,11 @@ def score(bundle, checkpoint, evidence, queries, output, device="cuda"):
     dev = device if device != "cuda" or torch.cuda.is_available() else "cpu"
     model, _ = load_model(str(B / checkpoint), "", dev)
     emb = PLMEmbedder(str(B / "plm"), device=dev, mean=np.load(B / "plm_mean.npy"))
+    if (B / "plm_check.npy").exists():   # the PLM must embed as it did where the bundle was built
+        ref = np.load(B / "plm_check.npy")
+        got = emb.embed(json.loads((B / "plm_check.json").read_text())).astype(np.float32)
+        print(f"ours: PLM check max |diff| {float(np.abs(ref - got).max()):.4f} (cosine min "
+              f"{float((ref * got).sum(1).min() / (np.linalg.norm(ref, axis=1) * np.linalg.norm(got, axis=1)).min()):.4f})", flush=True)
     E = pd.read_parquet(evidence)
     Q = pd.read_parquet(queries).copy()
     shift = float(cfg.get("electron_shift_pos", 0.0))
