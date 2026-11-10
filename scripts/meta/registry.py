@@ -204,6 +204,12 @@ def explore_cmd(a):
         return
     path = f"{REG}/explorations/{a.target}.json"
     E = json.load(open(path))
+    if a.action == "archive":   # never deleted: archived with its reason (and whether any result existed)
+        assert a.reason, "--reason is required"
+        E.update(state="archived", archived_at=now(), archived_reason=a.reason,
+                 results_existed=any(os.path.exists(f"{EVAL}/{w}__{c}.parquet") for w in E["arms"].values() for c in E["cells"]))
+        json.dump(E, open(path, "w"), indent=1); print(f"archived {a.target}: {a.reason}"); return
+    assert E.get("state") != "archived", f"{a.target} is archived"
     assert sha_obj(E["rules"]) == E["rules_sha256"], "rules changed after freezing"
     rules = E["rules"]
     rng = np.random.default_rng(rules["bootstrap"]["seed"])
@@ -252,7 +258,8 @@ def main():
     w.add_argument("--recipe", default="")
     l = sp.add_parser("leak"); l.add_argument("name")
     s = sp.add_parser("score"); s.add_argument("name")
-    e = sp.add_parser("explore"); e.add_argument("action", choices=["freeze", "report"]); e.add_argument("target")
+    e = sp.add_parser("explore"); e.add_argument("action", choices=["freeze", "report", "archive"]); e.add_argument("target")
+    e.add_argument("--reason", default="")
     t = sp.add_parser("table"); t.add_argument("--metric", default="mass:nf+0.25doc,mass:nf")
     a = ap.parse_args()
     {"cells": cells_cmd, "weights": weights_cmd, "leak": lambda a: leak_report(a.name), "score": score_cmd,

@@ -1,0 +1,127 @@
+{
+ "id": "E004",
+ "title": "KNN transfer with a model-free spectral similarity (fragment + neutral-loss cosine) [amended NL rule]",
+ "kind": "one_axis",
+ "axis": "scoring rule: A0 = z(nf) + 0.25 doc; A1 = A0 + beta * z(knn_cos), knn_cos = similarity-weighted Tanimoto of the candidate to the structures of the query's nearest library spectra under a classic cosine (no learned component)",
+ "question": "Does an analog search independent of our model (E002 used the model's own embedding and was redundant) add ranking information beyond our model and the documentation prior?",
+ "hypothesis": "A1 beats A0 on np_c2 (primary) without losing on np_tims.",
+ "builds_on": "E002; supersedes E003 (archived before any result)",
+ "arms": {
+  "A0": "e004_A0",
+  "A1": "e004_A1"
+ },
+ "arm_weights": {
+  "A0": "w4base_s0",
+  "A1": "w4base_s0"
+ },
+ "candidate_arms": [
+  "A1"
+ ],
+ "cells": [
+  "np_c2",
+  "np_tims"
+ ],
+ "rules": {
+  "index": "the same 1,865,951 training-visible spectra as E002 (asserted free of cell structures)",
+  "similarity": "cosine of sqrt relative intensity over the 50 most intense peaks; fragment m/z bins of 0.01 Da (+) neutral-loss (precursor - fragment, >= 1.5 Da: excludes the residual precursor peak) bins of 0.01 Da; each block L2-normalised and weighted 1/sqrt(2), so sim = (cos_fragment + cos_loss) / 2",
+  "knn": {
+   "k_per_spectrum": 20,
+   "weights": "softmax(sim / 0.05) over the union of the molecule's neighbours, pooled by structure (max)",
+   "fingerprint": "Morgan r2 2048"
+  },
+  "beta_selection": "grid {0.25, 0.5, 1, 2}; the beta used on each cell is the best mean MRR on the OTHER cell",
+  "primary": {
+   "cell": "np_c2",
+   "metric": "mass:score"
+  },
+  "metrics": [
+   "mass:score"
+  ],
+  "contrasts": [
+   [
+    "A1",
+    "A0"
+   ]
+  ],
+  "bootstrap": {
+   "resamples": 4000,
+   "seed": 0,
+   "paired_by": "mol_id",
+   "ci": 0.95
+  },
+  "verdict": {
+   "knn_cos_helps": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:score",
+     "test": "ci_low>0"
+    },
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_tims",
+     "metric": "mass:score",
+     "test": "mean>-0.01"
+    }
+   ],
+   "knn_cos_hurts": [
+    {
+     "contrast": [
+      "A1",
+      "A0"
+     ],
+     "cell": "np_c2",
+     "metric": "mass:score",
+     "test": "ci_high<0"
+    }
+   ]
+  },
+  "secondary_not_in_verdict": "A0 + beta z(knn_emb) + beta z(knn_cos) with the same cross-cell beta choice; knn_cos alone; doc + knn_cos",
+  "leak_policy": "every arm leak-free on every cell, and the index holds no spectrum of a cell structure, else void",
+  "consequence": "knn_cos_helps -> candidate signal for the pipeline's ranks 2-25 and the first piece of a class-3 analog route",
+  "limitations": [
+   "binned cosine approximates matched-peak cosine (bin edges)",
+   "one model (w4base_s0) for A0"
+  ]
+ },
+ "frozen_at": "2026-11-10T02:40:23+01:00",
+ "commit": "c37b5dd",
+ "rules_sha256": "f5028d3e2876924bb23789c12dc1ef5365bd48324917ef36542513f45167fd25",
+ "arms_with_results_at_freeze": [],
+ "post_hoc": false,
+ "state": "reported",
+ "report": {
+  "A1-A0|np_c2|mass:score": {
+   "mean": 0.009033787467460195,
+   "ci95": [
+    -0.009242534509227334,
+    0.026232796695705902
+   ],
+   "n": 801,
+   "up": 180,
+   "down": 171
+  },
+  "A1-A0|np_tims|mass:score": {
+   "mean": -0.07080403156933769,
+   "ci95": [
+    -0.09896322554996026,
+    -0.04302194503342462
+   ],
+   "n": 245,
+   "up": 12,
+   "down": 52
+  }
+ },
+ "verdict": {
+  "knn_cos_helps": false,
+  "knn_cos_hurts": false
+ },
+ "reported_at": "2026-11-10T02:42:55+01:00",
+ "report_sha256": "fa6307ed9d3a8c44ea297e2748656b1cd9ead3bfa0271774aef4318a3f23c545"
+}
