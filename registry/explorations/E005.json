@@ -122,5 +122,8 @@
   "A0"
  ],
  "post_hoc": false,
- "state": "frozen"
+ "state": "archived",
+ "archived_at": "2026-11-12T11:17:58+01:00",
+ "archived_reason": "Superseded before any verdict: the A1 run (w4inst_s0) stopped at step 18,400 of 31,020 after a power cut and train.py had no resume, so the arms do not share the frozen recipe. The instrument token is deferred in docs/model_proposal.md (declared risk of a timsTOF = drug-like prior; no gain in the literature).",
+ "results_existed": true
 }
