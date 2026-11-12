@@ -1,0 +1,34 @@
+{
+ "id": "P002",
+ "title": "Pick A: the public 0.487 notebook run verbatim on our account (reproducible base of record)",
+ "submission_ref": 58270706,
+ "kernel": "xaxipirulazo/casmi26-pick-a487 v1",
+ "source": "alexchilton/casmi26-lb-0-487-peaks-to-structures-scorer v13 (guhongbin's casmi26-v589-alex0484-extlib code; popwenman's scorer-train-v80 kernel output; Takumu Hata's extlib and samartalwar's MassBank-harmonized libraries)",
+ "code_cells_sha256_prefix": "385dfd5fdc6b239d",
+ "docker_image": "gcr.io/kaggle-private-byod/python@sha256:37c64f7dd9c54116ecd1bcc88817c5469b88387388fade02bfa8bf3fc647d461",
+ "builder": "hybrid/build_fork.py (commit 385b172)",
+ "submitted_at": "2026-11-12T12:08:00+01:00",
+ "commit_log_checks": {
+  "scorer v80 bundle found": true,
+  "submission ready, 400 rows (fast commit, as upstream)": true,
+  "extlib + MassBank references loaded (324,884 spectra)": true,
+  "no error or traceback": true
+ },
+ "rules": {
+  "metric": "public LB MRR@25, read as the 3-decimal score Kaggle displays",
+  "references": {
+   "source_score": 0.487,
+   "source_evidence": "alex chilton's account, submission 58185447 (2026-11-10); IONWRAITH v17 scored 0.487 on two submissions of the same version",
+   "run_to_run_noise": 0.002,
+   "noise_mechanism": "optional stages are skipped when the notebook's time guards trip, so the score depends on the rerun machine (IONWRAITH notes; our E013 found 9-18% of molecules change between two executions of one pipeline)",
+   "one_public_molecule_rank2_to_rank1": 0.004
+  },
+  "bands": [
+   {"name": "reproduces", "test": "0.485<=score<=0.489", "consequence": "base of record for every later comparison; the user selects it in the UI as one of the two final picks"},
+   {"name": "high", "test": "score>0.489", "consequence": "read as run noise, not an improvement; same consequence as reproduces"},
+   {"name": "low", "test": "0.480<=score<0.485", "consequence": "compare our commit log with the source's (image, inputs, time guards); still selected as Pick A unless a cause is found; no resubmission to chase the score (E013: best-of-reruns is selection on noise)"},
+   {"name": "fail", "test": "score<0.480 or error", "consequence": "diagnose before anything else; fallback base is the public-only 0.480 notebook (kernel casmi26-pick-a v1, commit run done, not submitted)"}
+  ],
+  "frozen_note": "Bands written before the score was known."
+ }
+}
