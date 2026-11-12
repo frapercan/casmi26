@@ -8,6 +8,8 @@ also scores the outside candidates (the 480 run used its second model there). Ev
 
   python hybrid/build_b0repro.py --upstream nb/base480.ipynb --dry nb/b0repro.ipynb
   python hybrid/build_b0repro.py --upstream nb/base480.ipynb --slug casmi26-b0repro --bundle-ds xaxipirulazo/casmi26-ours-bundle
+  python hybrid/build_b0repro.py --upstream nb/base480.ipynb --slug casmi26-pick-a --public-only   # Pick A
+Every push pins the Docker image (IMAGE) and the T4 machine shape.
 """
 import argparse, copy, json, os
 
@@ -16,7 +18,11 @@ ap.add_argument("--upstream", required=True)
 ap.add_argument("--slug", default="casmi26-b0repro")
 ap.add_argument("--bundle-ds", default="xaxipirulazo/casmi26-ours-bundle")
 ap.add_argument("--dry", default="", help="write the notebook here instead of pushing")
+ap.add_argument("--public-only", action="store_true", help="no bundle: the slot stays empty (Pick A, the reproducible base)")
 a = ap.parse_args()
+# the image every run so far used (P001, eval-c3, t4bench); pinned so a later default image cannot change the results
+# (under numpy >= 2.5 the fragment check's eligible molecules fall from 248 to 89 of 400)
+IMAGE = "gcr.io/kaggle-private-byod/python@sha256:de153e6d303881930c51286216393d56f56b26458d0661350305a1e8144eea01"
 
 CELL14 = r'''BUNDLE = materialise_sources()
 
@@ -125,6 +131,15 @@ ChemBERTa + Morgan molecule embeddings, with a forward head, on format-clean can
 pipeline in our repository). It also scores the outside candidates. Every other cell is the 0.480 notebook, unchanged;
 the credits further down apply to all of it.
 """
+TITLE_PUBLIC = """# CASMI26 · public 0.480 pipeline, public scorer only
+
+The public 0.480 notebook (bgunshui's *480 neural ensemble*, run verbatim below) orders ranks 2-25 by
+`0.5*z(public neural) + 0.5*z(second neural)`. Its second model came from a kernel that has since been deleted, so
+the slot stays empty here and the notebook ranks with the public neural model alone (its own fallback path).
+Nothing is added: this is the reproducible base. The credits further down apply to all of it.
+"""
+if a.public_only:
+    TITLE = TITLE_PUBLIC
 
 nb = copy.deepcopy(json.load(open(a.upstream)))
 c14 = "".join(nb["cells"][14]["source"])
@@ -145,9 +160,10 @@ H = {"User-Agent": "casmi26-tools", "Authorization": "Bearer " + TOK}
 DS = ["sanpier/casmi-spectrum-model-v1", "dmitriigluzdov/casmi26-fold-safe-fpnet",
       "dmitriigluzdov/casmi26-natural-product-knowledge-table", "dmitriigluzdov/casmi26-natural-product-panel-benchmark",
       "dmitriigluzdov/casmi26-pubchem-popularity-prior", "dmitriigluzdov/casmi26-attributed-v4g-reproduction-assets",
-      "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel", a.bundle_ds]
+      "sanpier/catalogue-experiment-saner", "metric/rdkit-2026-3-3-wheel"] + ([] if a.public_only else [a.bundle_ds])
 r = requests.post("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", headers=H, timeout=180, json={
     "slug": f"xaxipirulazo/{a.slug}", "newTitle": a.slug, "text": json.dumps(nb), "language": "python",
     "kernelType": "notebook", "isPrivate": True, "enableGpu": True, "enableInternet": False,
+    "dockerImage": IMAGE, "dockerImagePinningType": "original", "machineShape": "NvidiaTeslaT4",
     "competitionDataSources": ["enveda-CASMI26-molecule-id-mass-spectra"], "datasetDataSources": DS, "kernelDataSources": []})
 print(r.status_code, r.text[:400])

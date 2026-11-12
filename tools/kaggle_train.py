@@ -21,6 +21,8 @@ import requests
 API = "https://api.kaggle.com/v1/"
 USER = os.environ.get("KAGGLE_USER", "xaxipirulazo")
 DATASET = "casmi26-w4-store"
+# the image of every run so far (P001, eval-c3, t4bench), pinned so all arms of an exploration share one platform
+IMAGE = "gcr.io/kaggle-private-byod/python@sha256:de153e6d303881930c51286216393d56f56b26458d0661350305a1e8144eea01"
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MANIFEST = os.path.join(ROOT, "work", "kaggle_store.json")
 # file name -> (local source relative to the repo, place inside the kernel's work/)
@@ -169,6 +171,7 @@ def main():
         r = post("kernels.KernelsApiService/SaveKernel", {
             "slug": f"{USER}/{a.slug}", "newTitle": a.slug, "text": text, "language": "python", "kernelType": "script",
             "isPrivate": True, "enableGpu": True, "enableInternet": False, "dockerImagePinningType": "original",
+            "dockerImage": IMAGE, "machineShape": "NvidiaTeslaT4",
             "datasetDataSources": [f"{USER}/{DATASET}"], "competitionDataSources": [], "kernelDataSources": []})
         print(json.dumps({k: r.get(k) for k in ("ref", "url", "versionNumber", "error")}, indent=1))
     elif a.cmd == "status":
