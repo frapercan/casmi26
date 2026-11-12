@@ -1,0 +1,11 @@
+{
+ "E006": {"slug": "sr1-neutral-negatives", "for": "SR-1 membership-neutral negatives: A0/A1/A2 seed sets, A0r and A0q derived arms (docs/model_proposal.md 3.3)",
+          "note": "The FragWM draft (design angle C, E006_fragwm_draft.json) also used E006: it is not this exploration.", "reserved_at": "2026-11-12"},
+ "E006b": {"slug": "sr1-a1h-contingency", "for": "contingency arm A1h (Tanimoto-hard database isomers), frozen before J2 only if A1 loses skill (docs/model_proposal.md 2.3, 4.1)", "reserved_at": "2026-11-12"},
+ "E007": {"slug": "sr1-package-s", "for": "package S: CE-set conditioning, NP weights with matched negatives, m/z jitter; full_method (docs/model_proposal.md 2.2, 2.4)", "reserved_at": "2026-11-12"},
+ "E008": {"slug": "sr1-shifted-folds", "for": "shifted folds F1-F3 of the candidate recipe: np_tims OOF and np_tims_c1 (docs/model_proposal.md 3.4)", "reserved_at": "2026-11-12"},
+ "E009": {"slug": "sr1-slot-admission", "for": "admission of the refit to the neural slot (docs/model_proposal.md 3.4)", "reserved_at": "2026-11-12"},
+ "E010": {"slug": "r1-gate", "for": "R1-Gate, conditional rank-1 challenger within the leader's formula (docs/model_proposal.md 2.6, 3.4)", "reserved_at": "2026-11-12"},
+ "E011": {"slug": "isoarb", "for": "IsoArb, only if the CPU pilot v2 beats MetFrag-lite (docs/model_proposal.md 3.4)", "reserved_at": "2026-11-12"},
+ "E012": {"slug": "prior-loc", "for": "where the membership prior lives: marginal or spectrum-molecule interaction (docs/model_proposal.md 2.7, 3.4)", "reserved_at": "2026-11-12"}
+}
