@@ -1,0 +1,53 @@
+{
+ "id": "E013",
+ "title": "Selection audit of the public 0.480 lineage on the leak-free Enveda-180 frame (F_ext)",
+ "kind": "descriptive",
+ "status_note": "Design committed before computing the quantities below. Run-1 per-variant MRRs were already published in docs/kaggle_discussion.md section 4, so the per-variant MRR of run 1 is post hoc. New in E013: run 2, run-to-run agreement, the step shrinkage ratios, the split simulation and the paired SEs.",
+ "question": "How much of the public-LB gains of the lineage's last steps is selection (winner's curse on ~125 public molecules plus run-to-run noise)? Does any variant beat the public final on the leak-free frame by enough to change Pick A?",
+ "data": {
+  "runs": {"run1": "kaggle/input/casmi26-eval-ext", "run2": "kaggle/input/casmi26-eval-ext-b"},
+  "molecules": "400 leak-free Enveda-180 Zenodo molecules, structures absent from train.parquet, timsTOF, drug-like class 2; identical ids and truths in both runs",
+  "truth": "val_answers.parquet",
+  "metric": "MRR@25 on the official key (casmi.metric.ik14), first hit among the guesses"
+ },
+ "variants": {
+  "baseline0465": "submission_baseline0465.csv",
+  "public0466": "submission_public0466.csv",
+  "reference": "submission_reference.csv",
+  "e004_control": "submission_e004_control.csv",
+  "e006_control": "submission_e006_control.csv",
+  "control_V2": "submission_control_V2.csv",
+  "V0": "variants/submission_V0.csv",
+  "V1": "variants/submission_V1.csv",
+  "V2": "variants/submission_V2.csv",
+  "V3": "variants/submission_V3.csv",
+  "V4": "variants/submission_V4.csv",
+  "CUSTOM": "variants/submission_CUSTOM.csv",
+  "final": "submission.csv"
+ },
+ "lb_steps": {
+  "note": "Documented public-LB scores of the lineage (notebook titles and the harness notebook's own conclusions). Only these steps enter Q3.",
+  "scores": {
+   "baseline0465": [0.465, "frozen 0.465 baseline (Gluzdov)"],
+   "public0466": [0.466, "PubChem + Neural025 (Saner Turhaner)"],
+   "V2": [0.468, "LB 0.468 balanced acquisition evidence (Kozykorpesh), V2 consensus"],
+   "CUSTOM": [0.472, "leader-safe ranks 2-25 at 0.75 (alex chilton)"],
+   "final": [0.477, "fragment check leader moves from V2 on top of the 0.75 order (m1), harness notebook section 7"]
+  },
+  "steps": [["baseline0465", "public0466"], ["public0466", "V2"], ["V2", "CUSTOM"], ["CUSTOM", "final"]]
+ },
+ "quantities": {
+  "Q1": "Per-variant MRR in each run and their mean. Paired bootstrap of the difference against final (run mean of per-molecule RR; 4,000 resamples by molecule, seed 0), with mean, 95% CI and one-sided 95% lower bound per run.",
+  "Q2": "Run-to-run agreement per variant: MRR(run1) - MRR(run2); share of molecules whose RR differs between runs; share whose rank-1 guess differs.",
+  "Q3": "For each documented LB step a->b: delta_LB, delta_Fext (run mean) with paired 95% CI, and their ratio. Pooled shrinkage = sum delta_Fext / sum delta_LB over the four steps, also reported separately for the first two and the last two steps.",
+  "Q4": "Split simulation, 4,000 draws (seed 0). Each draw splits the 400 molecules at random into a public part (125) and a private part (275). Each variant is scored from one execution drawn at random (run1 or run2); its public and private scores come from that same execution. The variant with the best public score is selected. Reported per candidate set: mean inflation (public minus private score of the selected variant), mean regret (best expected private score minus the selected variant's private score), and how often each variant is selected. Candidate sets: K_all (all 13 variants), K_cons (V0-V4, CUSTOM), K_late (V2, CUSTOM, final). Also the resubmission-only case: the same variant (final), best of its two executions on the public part.",
+  "Q5": "Public-LB resolution: for every variant pair, the SE of a paired difference on 125 molecules = SD(per-molecule RR difference, run mean) / sqrt(125); report the median over pairs and the pairs of the documented steps."
+ },
+ "pick_A_rule": "Pick A stays the public final (the b0repro path without bundle) unless another variant's difference against final has a one-sided 95% lower bound > +0.005 in BOTH runs. Nothing else in E013 changes a pick.",
+ "caveats": [
+  "F_ext is drug-like class 2 only (no class 1, no class 3). A step that helps class-1 library hits (rank-1 protection) can be invisible or negative here without being selection noise. Q3 ratios measure transfer to this frame, not selection alone.",
+  "The documented LB scores come from page scores, and a page score can exceed its rerun by up to 0.010 (heliosli 0.478 -> 0.468, docs/research_plan.md).",
+  "Two executions only: run-to-run variance is estimated from one pair."
+ ],
+ "outputs": "docs/selection_audit.md (Spanish summary) and work/e013/ (per-molecule tables, gitignored)"
+}
