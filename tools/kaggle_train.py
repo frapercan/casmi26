@@ -78,6 +78,11 @@ while queue or running:
             running[g] = (tag, p, time.time())
             print(time.strftime("%H:%M:%S"), "start", tag, "GPU", g, ":", cmd, flush=True)
     time.sleep(60)
+    if int((time.time() - t0) / 60) % 5 == 0:
+        smi = subprocess.run(["nvidia-smi", "--query-gpu=index,memory.used,utilization.gpu", "--format=csv,noheader"],
+                             capture_output=True, text=True).stdout.replace("\n", " | ")
+        ram = os.popen("free -g").read().splitlines()[1].split()
+        print(time.strftime("%H:%M:%S"), "gpu", smi, "host RAM used/total GB", ram[2], "/", ram[1], flush=True)
     for g, (tag, p, ts) in list(running.items()):
         lines = [l for l in open(f"runs/{{tag}}/train.log").read().splitlines()
                  if l.startswith(("step", "EVAL", "LIFT", "FINAL", "Traceback")) or "Error" in l]
