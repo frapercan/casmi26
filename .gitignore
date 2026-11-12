@@ -9,3 +9,4 @@ configs/weights.json
 splits/val3/
 .venv/
 nb/
+.claude/worktrees/
