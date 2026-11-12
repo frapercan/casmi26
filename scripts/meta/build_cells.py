@@ -1,7 +1,8 @@
 """Test-like validation cells on natural products, with the full PubChem candidate window.
 
-The hidden test is natural products from biological extracts (157-1159 Da, median 348) while every earlier cell
-was built from Enveda-180 (drug-like screening chemistry, 235-499 Da). Cells here (work/meta/v1/molecules.parquet):
+The hidden test is natural products from biological extracts (157-1159 Da, median 348) while the earlier class-1/2
+cells were built from Enveda-180 (drug-like screening chemistry, 235-499 Da) and the class-3 cell (work/c3data) is
+NP-like but has Orbitrap/QTOF queries only. Cells here (work/meta/v1/molecules.parquet):
 
   np_tims  enveda-np-examples structures, their timsTOF spectra as queries (the closest proxy to the test;
            already excluded from all training: spectra, anchors and negatives)
@@ -134,7 +135,7 @@ def main():
     ap.add_argument("--lib", default="work/lib")
     ap.add_argument("--out", default="work/cells")
     ap.add_argument("--holdout", default="/kaggle/input/casmi26-train-v2/casmi26/splits/holdout.parquet")
-    ap.add_argument("--c3", default="work/c3data", help="existing Enveda-180 class-3 cell (exclusions are merged)")
+    ap.add_argument("--c3", default="work/c3data", help="existing class-3 cell, NP-like with Orbitrap/QTOF queries (exclusions are merged)")
     ap.add_argument("--n-np", type=int, default=800)
     ap.add_argument("--max-spec", type=int, default=6, help="query spectra per np_c2 molecule")
     ap.add_argument("--seed", type=int, default=0)

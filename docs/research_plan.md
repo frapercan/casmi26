@@ -979,3 +979,33 @@ Semillas: holdout 0.752/0.751, np_tims 0.887/0.886. Sensibilidad a ±0.000548 Da
 **Historia del notebook 0.480** (sus propias tablas): m1 (solo neural público) 0.477 → capa final midx 0.479 → segundo scorer (bgunshui, kernel ya borrado) 0.480. Sin el kernel borrado el notebook cae al neural público solo (~0.479). Los cambios de modelo neural mejores offline perdieron en el LB (−0.019 a −0.058); el puesto 1 es lo frágil.
 
 **B0-repro** (`hybrid/build_b0repro.py`, `hybrid/ours_neural_scores.py`, `hybrid/build_ours_bundle.py`): nuestro modelo en el hueco del segundo scorer (0.5·z(público)+0.5·z(nuestro), puestos 2–25; puesto 1 leader-safe sin cambios) y en los candidatos externos; si falla, el notebook vuelve al público solo. Bundle de 85 MB (código, checkpoint, ChemBERTa original del hub, media PLM); 12 s en GPU / 58 s en CPU para 10.7k candidatos. Repetición offline del consenso sobre la ejecución real `eval-c3` (430 moléculas Enveda-180, fuera de dominio): sin neural 0.629, neural público 0.615, público + nuestro 0.630 (+0.014 frente al público, IC95 [+0.007, +0.023], 75 suben / 44 bajan; `hybrid/replay_consensus.py`). Pendiente: prueba de humo local del notebook completo y, con permiso, dataset privado + commit (~26 min GPU) + 1 envío (~3.5–4 h GPU).
+
+---
+
+## Anexo C — Errata del 2026-11-12: qué es eval-c3 y qué implica para P001
+
+El Anexo B («Repetición offline del consenso sobre la ejecución real `eval-c3` (430 moléculas Enveda-180, fuera de dominio)») y el mensaje del commit 8671293 («430 drug-like Enveda-180 molecules hidden from the library») describen mal la celda. No se editan; esta nota los corrige.
+
+**Qué es eval-c3.** Es la ejecución en Kaggle de la celda `work/c3data` (P-C3D en §4): clase 3 simulada sobre estructuras **tipo NP**, con consultas **Orbitrap/QTOF**. No es Enveda-180 ni química tipo fármaco.
+- Comprobación propia sobre las 484 filas de `work/c3data/answers.parquet`:
+  - NP-score mediano 1.77 (mínimo 1.00);
+  - 63 % en COCONUT y 43 % en LOTUS;
+  - 0 espectros timsTOF y ninguna verdad con espectros de Enveda-180 o de np-examples.
+- En las 430 moléculas de la ejecución (revisión del 11-11):
+  - NP-score mediano 1.74, PubMed>0 en el 45.6 % y masa mediana 431.6 Da;
+  - clase 3 en 430/430;
+  - todas las verdades son estructuras de train/pool, y el scorer neural público vio ~92 % de ellas;
+  - 534 de sus 959 espectros no tienen CE, frente a 0 de 1,213 en el test visible.
+
+**Consecuencias.**
+- P001 dio 0.469 frente a 0.479 de la versión solo pública: −0.010, z ≈ −1.3 frente a efecto nulo. La lectura «la evaluación tipo fármaco no transfiere a NP» apunta al eje equivocado. Lo que separa eval-c3 del test es:
+  - el instrumento;
+  - la mezcla de clases (no hay clase 1);
+  - que las verdades pertenecen a train/pool;
+  - la documentación;
+  - el camino de CE ausente.
+- eval-c3 favorece por construcción a los modelos con lift de pertenencia. En la verificación del 11-12, con α 0.25 en el hueco, una copia con lift da +0.0039 y una copia neutral −0.0015. Por eso ni el +0.014 [+0.007, +0.023] del Anexo B ni el +0.0104 [+0.0027, +0.0185] del commit 8671293 predicen el LB.
+- Desde ahora eval-c3 solo sirve para comprobar la mecánica (hashes, invariancia del rank 1 y referencia de ruido). Nunca se usa como predictor de despliegue.
+- El texto de ayuda de `scripts/meta/build_cells.py --c3` tenía el mismo error y se corrigió en el mismo commit que esta nota.
+
+El detalle, la verificación y el plan que se deriva están en `docs/model_proposal.md` (§1.2 y §3).
